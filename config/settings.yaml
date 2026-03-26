@@ -1,0 +1,161 @@
+# ══════════════════════════════════════════════════════════════════
+#  GIC Plan-to-Perform: Master Configuration  v0.2.0
+# ══════════════════════════════════════════════════════════════════
+
+project:
+  name: "GIC Plan-to-Perform Engine"
+  version: "0.2.0"
+
+# ── Data Paths ───────────────────────────────────────────────────
+paths:
+  raw_data: "data/raw"
+  processed_data: "data/processed"
+  synthetic_data: "data/synthetic"
+  external_data: "data/external"
+  parquet_data: "data/parquet"
+  model_registry: "models/saved"
+  logs: "logs"
+  audit_trail: "logs/audit"
+
+# ── Data Sources ─────────────────────────────────────────────────
+data_sources:
+  yfinance:
+    enabled: true
+    default_period: "7y"
+    default_interval: "1mo"
+  ccxt:
+    enabled: true
+    exchange: "binance"
+    default_timeframe: "1d"
+    default_limit: 365
+  fred:
+    enabled: true
+    start_date: "2018-01-01"
+  use_real_data: true       # false = synthetic only
+
+# ── Commodities Tracked ──────────────────────────────────────────
+commodities:
+  - name: "Lithium"
+    unit: "USD/tonne"
+    category: "battery_materials"
+    bom_weight: 0.18
+    yfinance_ticker: "LIT"
+  - name: "Cobalt"
+    unit: "USD/tonne"
+    category: "battery_materials"
+    bom_weight: 0.07
+    yfinance_ticker: "REMX"
+  - name: "Nickel"
+    unit: "USD/tonne"
+    category: "battery_materials"
+    bom_weight: 0.05
+    yfinance_ticker: "JJN"
+  - name: "Aluminum"
+    unit: "USD/tonne"
+    category: "structural"
+    bom_weight: 0.12
+    yfinance_ticker: "JJU"
+  - name: "Steel"
+    unit: "USD/tonne"
+    category: "structural"
+    bom_weight: 0.22
+    yfinance_ticker: "SLX"
+  - name: "Copper"
+    unit: "USD/tonne"
+    category: "electrical"
+    bom_weight: 0.06
+    yfinance_ticker: "HG=F"
+  - name: "Platinum"
+    unit: "USD/oz"
+    category: "catalysts"
+    bom_weight: 0.04
+    yfinance_ticker: "PPLT"
+  - name: "Rubber"
+    unit: "USD/tonne"
+    category: "polymers"
+    bom_weight: 0.03
+    yfinance_ticker: "RUBB.L"
+
+# ── Vehicle Segments (JLR context) ───────────────────────────────
+vehicle_segments:
+  - segment: "Luxury_SUV"
+    models: ["Range Rover", "Range Rover Sport"]
+    avg_price_usd: 105000
+    annual_volume: 80000
+  - segment: "Premium_SUV"
+    models: ["Defender", "Discovery"]
+    avg_price_usd: 72000
+    annual_volume: 120000
+  - segment: "Performance"
+    models: ["F-PACE", "E-PACE"]
+    avg_price_usd: 58000
+    annual_volume: 65000
+  - segment: "EV"
+    models: ["I-PACE", "Future EV"]
+    avg_price_usd: 82000
+    annual_volume: 45000
+
+# ── Forecast Configuration ───────────────────────────────────────
+forecast:
+  horizon_months: 12
+  confidence_levels: [0.80, 0.90, 0.95]
+  retrain_frequency_days: 30
+  min_training_months: 24
+  feature_lag_months: [1, 3, 6, 12]
+
+# ── Financial Model ──────────────────────────────────────────────
+financial:
+  base_cogs_pct: 0.68        # base COGS as % of revenue
+  warranty_reserve_pct: 0.025
+  tax_rate: 0.21
+  discount_rate: 0.08
+  depreciation_years: 7
+
+# ── Monte Carlo Simulation ───────────────────────────────────────
+simulation:
+  n_simulations: 10000
+  seed: 42
+  scenario_presets:
+    base:
+      demand_shock: 0.0
+      commodity_shock: 0.0
+      fx_shock: 0.0
+    bull:
+      demand_shock: 0.10
+      commodity_shock: -0.05
+      fx_shock: -0.02
+    bear:
+      demand_shock: -0.15
+      commodity_shock: 0.20
+      fx_shock: 0.05
+    commodity_crisis:
+      demand_shock: -0.05
+      commodity_shock: 0.40
+      fx_shock: 0.10
+
+# ── Governance ───────────────────────────────────────────────────
+governance:
+  bias_threshold_pct: 5.0     # alert if forecast bias > 5%
+  max_override_pct: 20.0      # max manual override allowed
+  audit_retention_days: 365
+  explainability: true
+
+# ── API Configuration ────────────────────────────────────────────
+api:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 4
+  cors_origins: ["http://localhost:3000", "http://localhost:8080", "http://localhost:8501"]
+
+# ── Streamlit Dashboard ─────────────────────────────────────────
+dashboard:
+  port: 8501
+  theme: "dark"
+  refresh_interval_minutes: 60
+  pages:
+    - "Executive Summary"
+    - "Commodity Intelligence"
+    - "Financial P&L"
+    - "Scenario Simulation"
+    - "Market Monitor"
+    - "Crypto & Alternatives"

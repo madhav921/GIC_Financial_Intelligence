@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Data files (keep structure, ignore large files)
+data/raw/*.csv
+data/raw/*.parquet
+data/processed/*.csv
+data/processed/*.parquet
+data/external/*.parquet
+data/external/*.csv
+data/external/*.json
+data/parquet/*.parquet
+!data/synthetic/*.csv
+
+# Models
+models/saved/**/*
+
+# Logs
+logs/*.log
+logs/audit/*.jsonl
+
+# Environment
+.env
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Streamlit
+.streamlit/
+
+# OS
+.DS_Store
+Thumbs.db
