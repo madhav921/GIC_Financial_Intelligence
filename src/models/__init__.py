@@ -1,1 +1,1 @@
-"""Models sub-package: ML forecasting models."""
+"""Models sub-package: ML forecasting models and commodity price intelligence."""

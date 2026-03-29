@@ -1,20 +1,19 @@
 """
 Commodity Price Forecast Model (Layer 3 — AI Forecast Layer)
 
-Multi-approach commodity forecasting using REAL market data from Yahoo Finance:
-  1. SARIMAX — seasonal ARIMA with exogenous macro regressors
-  2. XGBoost  — gradient boosted ensemble with rich feature engineering
-  3. Ensemble — weighted blend (XGBoost-dominant when data is plentiful)
+Multi-approach commodity forecasting for JLR's 12 key material categories:
+  1. ARIMA / SARIMAX — seasonal ARIMA with exogenous macro regressors (baseline)
+  2. XGBoost — gradient boosted ensemble with rich feature engineering (macro-driven)
+  3. Futures Curve Extraction — market-implied forward prices (zero modelling)
+  4. Scenario Analysis — Bear/Base/Bull expert + model hybrid
+  5. Ensemble — weighted blend of Method 1 + 2
 
 Designed to work with BOTH real-world (yfinance) data AND synthetic fallback.
+Feeds directly into Layer 2: COGS = f(BOM, Commodity Index, Utilization).
 
-Key improvements over v0.1.0:
-  - Integrates actual fetched yfinance data (data/external/market_commodities.parquet)
-  - Proper walk-forward validation (no look-ahead bias)
-  - Richer feature set: RSI, MACD momentum, VIX/macro context
-  - Ensemble weighting based on CV MAPE
-  - Stores feature importance for explainability
-  - Handles monthly & daily granularity
+Commodities covered:
+  Steel, Aluminium, Copper, Platinum, Palladium, Rhodium,
+  Lithium, Cobalt, Nickel, Natural Gas, Polypropylene, ABS Resin
 """
 
 from __future__ import annotations
@@ -33,6 +32,13 @@ from xgboost import XGBRegressor
 
 from src.config import get_project_root, get_settings
 from src.data.feature_engineering import compute_directional_accuracy, prepare_commodity_features
+from src.models.futures_curve import FuturesCurveExtractor
+from src.models.commodity_scenarios import (
+    CommodityScenarioEngine,
+    MacroAssumptions,
+    MonthlyUpdatePipeline,
+    VarianceTracker,
+)
 from src.models.model_registry import ModelRegistry
 
 
@@ -277,6 +283,15 @@ class CommodityForecastModel:
         self._feature_importance: dict[str, pd.DataFrame] = {}
         self._cv_metrics: dict[str, dict] = {}
         self._lags = self.settings["forecast"].get("feature_lag_months", [1, 3, 6, 12])
+        # New: Method 3 & 4 integration
+        self.futures_extractor = FuturesCurveExtractor()
+        self.scenario_engine = CommodityScenarioEngine()
+        self.variance_tracker = VarianceTracker()
+        self.monthly_pipeline = MonthlyUpdatePipeline()
+        # Build commodity→preferred_method mapping from settings
+        self._method_map = {}
+        for c in self.settings.get("commodities", []):
+            self._method_map[c["name"]] = c.get("preferred_method", "xgboost")
 
     def _load_real_prices(self) -> pd.DataFrame | None:
         """
@@ -407,8 +422,20 @@ class CommodityForecastModel:
         n_splits: int = 5,
     ) -> dict[str, float]:
         """Walk-forward cross-validation — no look-ahead bias."""
+        # Ensure commodity_df has a 'date' column for prepare_commodity_features
+        if "date" not in commodity_df.columns and isinstance(commodity_df.index, pd.DatetimeIndex):
+            cv_df = commodity_df.reset_index().rename(columns={"index": "date"})
+        else:
+            cv_df = commodity_df
+
+        # Ensure macro_df has 'date' column too
+        if macro_df is not None and "date" not in macro_df.columns and isinstance(macro_df.index, pd.DatetimeIndex):
+            macro_cv = macro_df.reset_index().rename(columns={"index": "date"})
+        else:
+            macro_cv = macro_df
+
         feat_df = prepare_commodity_features(
-            commodity_df, macro_df, commodity,
+            cv_df, macro_cv, commodity,
             lags=self._lags,
         )
         feature_cols = [c for c in feat_df.columns if c not in ("date", "target")]
@@ -468,91 +495,91 @@ class CommodityForecastModel:
             model_type="SARIMAX",
         )
 
-    def forecast_xgboost(
-        self, commodity: str, commodity_df: pd.DataFrame, macro_df: pd.DataFrame | None
-    ) -> ForecastResult:
-        """
-        Generate XGBoost recursive multi-step forecast.
-        Uses the trained model's own predictions as inputs for future steps.
-        """
-        model = self.xgb_models.get(commodity)
-        if model is None:
-            raise ValueError(f"XGBoost model not trained for {commodity}")
+    # def forecast_xgboost(
+    #     self, commodity: str, commodity_df: pd.DataFrame, macro_df: pd.DataFrame | None
+    # ) -> ForecastResult:
+    #     """
+    #     Generate XGBoost recursive multi-step forecast.
+    #     Uses the trained model's own predictions as inputs for future steps.
+    #     """
+    #     model = self.xgb_models.get(commodity)
+    #     if model is None:
+    #         raise ValueError(f"XGBoost model not trained for {commodity}")
 
-        # Get the last available price series
-        if isinstance(commodity_df.index, pd.DatetimeIndex):
-            price_series = commodity_df[commodity] if commodity in commodity_df.columns else pd.Series()
-        else:
-            price_series = (
-                commodity_df.set_index("date")[commodity]
-                if "date" in commodity_df.columns and commodity in commodity_df.columns
-                else pd.Series()
-            )
+    #     # Get the last available price series
+    #     if isinstance(commodity_df.index, pd.DatetimeIndex):
+    #         price_series = commodity_df[commodity] if commodity in commodity_df.columns else pd.Series()
+    #     else:
+    #         price_series = (
+    #             commodity_df.set_index("date")[commodity]
+    #             if "date" in commodity_df.columns and commodity in commodity_df.columns
+    #             else pd.Series()
+    #         )
 
-        feat_df = _build_rich_features(price_series, macro_df, self._lags, commodity)
-        feature_cols = [c for c in feat_df.columns if c != "target"]
+    #     feat_df = _build_rich_features(price_series, macro_df, self._lags, commodity)
+    #     feature_cols = [c for c in feat_df.columns if c != "target"]
 
-        # Use final in-sample row as base for recursive forecast
-        last_row = feat_df[feature_cols].iloc[[-1]].copy()
-        forecasts = []
-        future_dates = pd.date_range(
-            pd.Timestamp.now().normalize(), periods=self.horizon, freq="MS"
-        )
+    #     # Use final in-sample row as base for recursive forecast
+    #     last_row = feat_df[feature_cols].iloc[[-1]].copy()
+    #     forecasts = []
+    #     future_dates = pd.date_range(
+    #         pd.Timestamp.now().normalize(), periods=self.horizon, freq="MS"
+    #     )
 
-        last_price = float(feat_df["target"].iloc[-1])
+    #     last_price = float(feat_df["target"].iloc[-1])
 
-        for step in range(self.horizon):
-            pred = float(model.predict(last_row)[0])
-            pred = max(pred, 0.01)  # avoid negative prices
-            forecasts.append(pred)
+    #     for step in range(self.horizon):
+    #         pred = float(model.predict(last_row)[0])
+    #         pred = max(pred, 0.01)  # avoid negative prices
+    #         forecasts.append(pred)
 
-            # Update lag features for next step
-            for lag in self._lags:
-                lag_col = f"lag_{lag}"
-                if lag_col in last_row.columns:
-                    if lag == 1:
-                        last_row[lag_col] = pred
-                    else:
-                        prev_lag_col = f"lag_{lag - 1}"
-                        if prev_lag_col in last_row.columns:
-                            last_row[lag_col] = last_row[prev_lag_col].values[0]
+    #         # Update lag features for next step
+    #         for lag in self._lags:
+    #             lag_col = f"lag_{lag}"
+    #             if lag_col in last_row.columns:
+    #                 if lag == 1:
+    #                     last_row[lag_col] = pred
+    #                 else:
+    #                     prev_lag_col = f"lag_{lag - 1}"
+    #                     if prev_lag_col in last_row.columns:
+    #                         last_row[lag_col] = last_row[prev_lag_col].values[0]
 
-            # Update return features
-            if "ret_1m" in last_row.columns:
-                last_row["ret_1m"] = (pred - last_price) / (last_price + 1e-9)
-            last_price = pred
+    #         # Update return features
+    #         if "ret_1m" in last_row.columns:
+    #             last_row["ret_1m"] = (pred - last_price) / (last_price + 1e-9)
+    #         last_price = pred
 
-        # Estimate uncertainty from CV metrics
-        cv_mape = self._cv_metrics.get(commodity, {}).get("cv_mape_mean", 10.0)
-        uncertainty_80 = cv_mape / 100 * 1.28  # ~80% CI
-        uncertainty_95 = cv_mape / 100 * 1.96  # ~95% CI
+    #     # Estimate uncertainty from CV metrics
+    #     cv_mape = self._cv_metrics.get(commodity, {}).get("cv_mape_mean", 10.0)
+    #     uncertainty_80 = cv_mape / 100 * 1.28  # ~80% CI
+    #     uncertainty_95 = cv_mape / 100 * 1.96  # ~95% CI
 
-        lower_80 = [f * (1 - uncertainty_80 * (i + 1) ** 0.5 / self.horizon ** 0.5)
-                    for i, f in enumerate(forecasts)]
-        upper_80 = [f * (1 + uncertainty_80 * (i + 1) ** 0.5 / self.horizon ** 0.5)
-                    for i, f in enumerate(forecasts)]
-        lower_95 = [f * (1 - uncertainty_95 * (i + 1) ** 0.5 / self.horizon ** 0.5)
-                    for i, f in enumerate(forecasts)]
-        upper_95 = [f * (1 + uncertainty_95 * (i + 1) ** 0.5 / self.horizon ** 0.5)
-                    for i, f in enumerate(forecasts)]
+    #     lower_80 = [f * (1 - uncertainty_80 * (i + 1) ** 0.5 / self.horizon ** 0.5)
+    #                 for i, f in enumerate(forecasts)]
+    #     upper_80 = [f * (1 + uncertainty_80 * (i + 1) ** 0.5 / self.horizon ** 0.5)
+    #                 for i, f in enumerate(forecasts)]
+    #     lower_95 = [f * (1 - uncertainty_95 * (i + 1) ** 0.5 / self.horizon ** 0.5)
+    #                 for i, f in enumerate(forecasts)]
+    #     upper_95 = [f * (1 + uncertainty_95 * (i + 1) ** 0.5 / self.horizon ** 0.5)
+    #                 for i, f in enumerate(forecasts)]
 
-        importance = {}
-        if commodity in self._feature_importance:
-            fi = self._feature_importance[commodity]
-            importance = dict(zip(fi["feature"].head(10), fi["importance"].head(10)))
+    #     importance = {}
+    #     if commodity in self._feature_importance:
+    #         fi = self._feature_importance[commodity]
+    #         importance = dict(zip(fi["feature"].head(10), fi["importance"].head(10)))
 
-        return ForecastResult(
-            commodity=commodity,
-            dates=[d.strftime("%Y-%m-%d") for d in future_dates],
-            point_forecast=forecasts,
-            lower_80=lower_80,
-            upper_80=upper_80,
-            lower_95=lower_95,
-            upper_95=upper_95,
-            model_type="XGBoost",
-            metrics=self._cv_metrics.get(commodity, {}),
-            feature_importance=importance,
-        )
+    #     return ForecastResult(
+    #         commodity=commodity,
+    #         dates=[d.strftime("%Y-%m-%d") for d in future_dates],
+    #         point_forecast=forecasts,
+    #         lower_80=lower_80,
+    #         upper_80=upper_80,
+    #         lower_95=lower_95,
+    #         upper_95=upper_95,
+    #         model_type="XGBoost",
+    #         metrics=self._cv_metrics.get(commodity, {}),
+    #         feature_importance=importance,
+    #     )
 
     def forecast_ensemble(
         self, commodity: str, commodity_df: pd.DataFrame, macro_df: pd.DataFrame | None
@@ -623,6 +650,97 @@ class CommodityForecastModel:
             if isinstance(self._feature_importance.get(commodity), pd.DataFrame) else {},
         )
 
+    def forecast_xgboost(
+        self, commodity: str, commodity_df: pd.DataFrame, macro_df: pd.DataFrame | None
+    ) -> ForecastResult:
+        """
+        Modified to start forecasting from the end of the provided commodity_df
+        instead of 'now', enabling correct 2025 backtesting.
+        """
+        model = self.xgb_models.get(commodity)
+        if model is None:
+            raise ValueError(f"XGBoost model not trained for {commodity}")
+
+        # Ensure we have a sorted DatetimeIndex to find the "end" of the data
+        if isinstance(commodity_df.index, pd.DatetimeIndex):
+            df_sorted = commodity_df.sort_index()
+            price_series = df_sorted[commodity]
+        else:
+            df_sorted = commodity_df.set_index("date").sort_index()
+            df_sorted.index = pd.to_datetime(df_sorted.index)
+            price_series = df_sorted[commodity]
+
+        # Use the LAST date in the provided dataframe as the starting point
+        last_data_date = df_sorted.index[-1]
+       
+        feat_df = _build_rich_features(price_series, macro_df, self._lags, commodity)
+        feature_cols = [c for c in feat_df.columns if c != "target"]
+
+        last_row = feat_df[feature_cols].iloc[[-1]].copy()
+        forecasts = []
+       
+        # --- FIXED TIMELINE LOGIC ---
+        # Generate dates starting from the month AFTER the last training point
+        future_dates = pd.date_range(
+            last_data_date + pd.offsets.MonthBegin(1),
+            periods=self.horizon,
+            freq="MS"
+        )
+
+        last_price = float(feat_df["target"].iloc[-1])
+
+        for step in range(self.horizon):
+            pred = float(model.predict(last_row)[0])
+            pred = max(pred, 0.01)
+            forecasts.append(pred)
+
+            # Update lag features recursively
+            for lag in self._lags:
+                lag_col = f"lag_{lag}"
+                if lag_col in last_row.columns:
+                    if lag == 1:
+                        last_row[lag_col] = pred
+                    else:
+                        prev_lag_col = f"lag_{lag - 1}"
+                        if prev_lag_col in last_row.columns:
+                            last_row[lag_col] = last_row[prev_lag_col].values[0]
+
+            if "ret_1m" in last_row.columns:
+                last_row["ret_1m"] = (pred - last_price) / (last_price + 1e-9)
+            last_price = pred
+
+        # Estimate uncertainty from CV metrics
+        cv_mape = self._cv_metrics.get(commodity, {}).get("cv_mape_mean", 10.0)
+        uncertainty_80 = cv_mape / 100 * 1.28  # ~80% CI
+        uncertainty_95 = cv_mape / 100 * 1.96  # ~95% CI
+
+        lower_80 = [f * (1 - uncertainty_80 * (i + 1) ** 0.5 / self.horizon ** 0.5)
+                    for i, f in enumerate(forecasts)]
+        upper_80 = [f * (1 + uncertainty_80 * (i + 1) ** 0.5 / self.horizon ** 0.5)
+                    for i, f in enumerate(forecasts)]
+        lower_95 = [f * (1 - uncertainty_95 * (i + 1) ** 0.5 / self.horizon ** 0.5)
+                    for i, f in enumerate(forecasts)]
+        upper_95 = [f * (1 + uncertainty_95 * (i + 1) ** 0.5 / self.horizon ** 0.5)
+                    for i, f in enumerate(forecasts)]
+
+        importance = {}
+        if commodity in self._feature_importance:
+            fi = self._feature_importance[commodity]
+            importance = dict(zip(fi["feature"].head(10), fi["importance"].head(10)))
+
+        return ForecastResult(
+            commodity=commodity,
+            dates=[d.strftime("%Y-%m-%d") for d in future_dates],
+            point_forecast=forecasts,
+            lower_80=lower_80,
+            upper_80=upper_80,
+            lower_95=lower_95,
+            upper_95=upper_95,
+            model_type="XGBoost",
+            metrics=self._cv_metrics.get(commodity, {}),
+            feature_importance=importance,
+        )
+    
     def train_all_commodities(
         self,
         commodity_df: pd.DataFrame,
@@ -745,3 +863,184 @@ class CommodityForecastModel:
         for commodity, metrics in self._cv_metrics.items():
             records.append({"commodity": commodity, **metrics})
         return pd.DataFrame(records)
+
+    # ─── Method 3: Futures Curve Extraction ──────────────────────────────────
+
+    def forecast_futures_curve(
+        self,
+        commodity: str,
+        spot_price: float,
+        horizon_months: int | None = None,
+    ) -> ForecastResult:
+        """
+        Extract market-implied forward prices from futures curve.
+        Only for commodities with liquid futures markets.
+        """
+        h = horizon_months or self.horizon
+        curve = self.futures_extractor.extract_curve(commodity, spot_price, h)
+        n = len(curve.forward_prices)
+
+        # Futures curves have tighter CIs (market consensus)
+        spread_80 = 0.03  # ±3% band for 80% CI
+        spread_95 = 0.05  # ±5% band for 95% CI
+
+        return ForecastResult(
+            commodity=commodity,
+            dates=curve.dates,
+            point_forecast=curve.forward_prices,
+            lower_80=[p * (1 - spread_80) for p in curve.forward_prices],
+            upper_80=[p * (1 + spread_80) for p in curve.forward_prices],
+            lower_95=[p * (1 - spread_95) for p in curve.forward_prices],
+            upper_95=[p * (1 + spread_95) for p in curve.forward_prices],
+            model_type="Futures_Curve",
+            metrics={
+                "contango_pct": curve.contango_pct,
+                "curve_shape": curve.curve_shape,
+                "source": curve.source,
+            },
+        )
+
+    # ─── Method 4: Scenario Analysis ────────────────────────────────────────
+
+    def forecast_scenario(
+        self,
+        commodity: str,
+        current_price: float | None = None,
+        macro: MacroAssumptions | None = None,
+    ) -> ForecastResult:
+        """
+        Generate scenario-based forecast (Bear/Base/Bull).
+        Expert + model hybrid approach with probability-weighted outcome.
+        """
+        result = self.scenario_engine.run_commodity_scenario(
+            commodity, current_price, macro
+        )
+
+        # Generate monthly path that converges to weighted forecast over horizon
+        future_dates = pd.date_range(
+            pd.Timestamp.now().normalize() + pd.offsets.MonthBegin(1),
+            periods=self.horizon,
+            freq="MS",
+        )
+
+        # Linear interpolation from current to target
+        steps = np.linspace(0, 1, self.horizon)
+        point_forecast = [
+            round(result.current_price + (result.weighted_forecast - result.current_price) * s, 2)
+            for s in steps
+        ]
+        bear_path = [
+            round(result.current_price + (result.bear_price - result.current_price) * s, 2)
+            for s in steps
+        ]
+        bull_path = [
+            round(result.current_price + (result.bull_price - result.current_price) * s, 2)
+            for s in steps
+        ]
+
+        return ForecastResult(
+            commodity=commodity,
+            dates=[d.strftime("%Y-%m-%d") for d in future_dates],
+            point_forecast=point_forecast,
+            lower_80=bear_path,
+            upper_80=bull_path,
+            lower_95=[p * 0.95 for p in bear_path],
+            upper_95=[p * 1.05 for p in bull_path],
+            model_type="Scenario_Analysis",
+            metrics={
+                "bear_price": result.bear_price,
+                "base_price": result.base_price,
+                "bull_price": result.bull_price,
+                "weighted_forecast": result.weighted_forecast,
+                "scenario_weights": result.scenario_weights,
+            },
+        )
+
+    # ─── Intelligent Method Routing ──────────────────────────────────────────
+
+    def get_preferred_method(self, commodity: str) -> str:
+        """Return the preferred forecasting method for a commodity."""
+        return self._method_map.get(commodity, "xgboost")
+
+    def forecast_auto(
+        self,
+        commodity: str,
+        commodity_df: pd.DataFrame,
+        macro_df: pd.DataFrame | None = None,
+        macro_assumptions: MacroAssumptions | None = None,
+    ) -> dict[str, ForecastResult]:
+        """
+        Auto-route commodity to its preferred method(s) and return all applicable forecasts.
+
+        Returns dict with keys like 'primary', 'futures_curve', 'scenario'.
+        """
+        results: dict[str, ForecastResult] = {}
+        method = self.get_preferred_method(commodity)
+
+        # Always run the primary statistical model
+        if commodity in self.xgb_models:
+            results["primary"] = self.forecast_xgboost(commodity, commodity_df, macro_df)
+        elif commodity in self.sarimax_models:
+            results["primary"] = self.forecast_sarimax(commodity)
+
+        # Method 3: Futures curve if eligible
+        if FuturesCurveExtractor.is_eligible(commodity):
+            # Get spot price from latest data
+            if isinstance(commodity_df.index, pd.DatetimeIndex):
+                spot = float(commodity_df[commodity].dropna().iloc[-1])
+            elif "date" in commodity_df.columns and commodity in commodity_df.columns:
+                spot = float(commodity_df[commodity].dropna().iloc[-1])
+            else:
+                spot = None
+            if spot is not None:
+                results["futures_curve"] = self.forecast_futures_curve(commodity, spot)
+
+        # Method 4: Scenario analysis (always available)
+        spot_price = None
+        if isinstance(commodity_df.index, pd.DatetimeIndex) and commodity in commodity_df.columns:
+            spot_price = float(commodity_df[commodity].dropna().iloc[-1])
+        elif "date" in commodity_df.columns and commodity in commodity_df.columns:
+            spot_price = float(commodity_df[commodity].dropna().iloc[-1])
+
+        results["scenario"] = self.forecast_scenario(
+            commodity, spot_price, macro_assumptions
+        )
+
+        return results
+
+    # ─── Monthly Update Integration ──────────────────────────────────────────
+
+    def run_monthly_update(
+        self,
+        commodity_df: pd.DataFrame,
+        prior_forecasts: dict[str, float],
+        macro: MacroAssumptions | None = None,
+    ) -> dict:
+        """
+        Execute monthly update cycle per spec:
+        1. Pull latest prices (from commodity_df)
+        2. Check macro signals (from macro assumptions)
+        3. Model refresh happens in train_all_commodities
+        4-7. Run through MonthlyUpdatePipeline
+        """
+        # Extract current prices from latest row
+        if "date" in commodity_df.columns:
+            latest = commodity_df.sort_values("date").iloc[-1]
+            current_prices = {
+                col: float(latest[col])
+                for col in commodity_df.columns
+                if col != "date" and pd.notna(latest[col])
+            }
+        else:
+            latest = commodity_df.sort_index().iloc[-1]
+            current_prices = {
+                col: float(latest[col])
+                for col in commodity_df.columns
+                if pd.notna(latest[col])
+            }
+
+        return self.monthly_pipeline.run_monthly_update(
+            current_prices=current_prices,
+            prior_forecasts=prior_forecasts,
+            macro=macro,
+        )

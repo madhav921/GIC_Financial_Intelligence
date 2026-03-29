@@ -39,10 +39,10 @@
 │  ┌────────────────┐   ┌────────────────┐   ┌────────────────────────────────┐  │
 │  │ Commodity      │   │ Demand         │   │ Price Elasticity              │  │
 │  │ Forecast       │   │ Forecast       │   │ Model                        │  │
-│  │                │   │                │   │                              │  │
-│  │ SARIMAX +      │──▶│ XGBoost per    │──▶│ Log-Log Ridge Regression     │  │
-│  │ XGBoost        │   │ Segment        │   │ Own-price + Commodity cross  │  │
-│  │ Cross-Valid.   │   │ (4 segments)   │   │ elasticity estimation        │  │
+│  │ (12 Materials) │   │                │   │                              │  │
+│  │ SARIMAX+XGB    │──▶│ XGBoost per    │──▶│ Log-Log Ridge Regression     │  │
+│  │ Futures+Scenar │   │ Segment        │   │ Own-price + Commodity cross  │  │
+│  │ 4 Methods      │   │ (4 segments)   │   │ elasticity estimation        │  │
 │  └───────┬────────┘   └───────┬────────┘   └───────────────┬──────────────┘  │
 │          │                    │                             │                  │
 │  ┌───────▼────────┐   ┌──────▼─────────┐   ┌──────────────▼──────────────┐  │
@@ -140,7 +140,8 @@ gic-plan-to-perform/
 │   ├── fetch_data.py              # Fetch real-world data from all sources
 │   ├── generate_data.py           # Generate synthetic data for testing
 │   ├── train_models.py            # Train all ML models
-│   └── run_pipeline.py            # End-to-end pipeline orchestration
+│   ├── run_pipeline.py            # End-to-end pipeline orchestration
+│   └── run_commodity_pipeline.py  # 8-stage commodity forecast pipeline
 │
 ├── src/
 │   ├── config.py                  # Configuration loader (YAML + env vars)
@@ -194,7 +195,10 @@ gic-plan-to-perform/
 │   │   └── explainability.py      # Natural-language forecast explanations
 │   │
 │   ├── models/                    # ML model implementations
-│   │   ├── commodity_forecast.py  # SARIMAX + XGBoost commodity forecasting
+│   │   ├── commodity_forecast.py  # 4-method commodity forecasting orchestrator
+│   │   ├── commodity_forecast_xgboost.py  # XGBoost commodity model
+│   │   ├── futures_curve.py       # Futures curve extraction (Method 3)
+│   │   ├── commodity_scenarios.py # Scenario analysis & variance tracking (Method 4)
 │   │   ├── demand_forecast.py     # XGBoost demand by segment
 │   │   ├── price_elasticity.py    # Log-log Ridge regression
 │   │   ├── inventory_risk.py      # Days-of-supply & stockout probability
@@ -225,7 +229,7 @@ gic-plan-to-perform/
 | Category | Technology | Purpose |
 |----------|-----------|---------|
 | **Data Processing** | Polars + Parquet | High-performance DataFrame ops, columnar storage |
-| **ML / Forecasting** | SARIMAX, XGBoost, scikit-learn | Time-series & gradient boosted forecasting |
+| **ML / Forecasting** | SARIMAX, XGBoost, scikit-learn | Time-series, gradient boosted, futures curve & scenario forecasting |
 | **Real-Time Data** | yfinance | Commodity futures, indices, FX — free, no API key |
 | **Crypto Data** | ccxt (Binance) | Real-time crypto exchange data (BTC, ETH, SOL...) |
 | **Macro Data** | fredapi | Federal Reserve economic indicators (free API key) |
@@ -293,6 +297,22 @@ python scripts/train_models.py
 ```bash
 python scripts/run_pipeline.py
 ```
+
+### 6b. Run Commodity Forecast Pipeline (12 Materials, 4 Methods)
+
+```bash
+python scripts/run_commodity_pipeline.py
+```
+
+This runs the full 8-stage commodity pipeline:
+1. Data generation (12 commodities + macro indicators)
+2. Model training (SARIMAX + XGBoost per commodity with cross-validation)
+3. Forecast generation (all 4 methods: SARIMAX, XGBoost, Futures Curve, Scenario)
+4. Multi-method comparison table
+5. BOM-weighted commodity index
+6. Variance tracking & monthly update (with >5% alert / >10% escalation)
+7. Macro scenario stress tests (Bear / Base / Bull)
+8. Governance & audit trail
 
 ### 7. Launch Dashboard
 
@@ -410,7 +430,8 @@ Index(t) = Σ(w_i × Price_i(t) / Price_i(0) × 100) / Σ(w_i)
 
 Where weights reflect Bill of Materials cost allocation:
 - Steel: 22% | Lithium: 18% | Aluminum: 12% | Cobalt: 7%
-- Copper: 6% | Nickel: 5% | Platinum: 4% | Rubber: 3%
+- Copper: 6% | Nickel: 5% | Platinum: 4% | Natural Gas: 4%
+- Palladium: 3% | Polypropylene: 3% | Rhodium: 2% | ABS Resin: 2%
 
 ### Monte Carlo Simulation
 
@@ -422,31 +443,62 @@ Where weights reflect Bill of Materials cost allocation:
 
 ---
 
-## Commodities Tracked
+## Commodities Tracked (12 JLR-Relevant Materials)
 
-| Commodity | Category | BOM Weight | Data Source | Ticker |
-|-----------|----------|------------|-------------|--------|
-| Lithium | Battery Materials | 18% | Yahoo Finance | LIT |
-| Cobalt | Battery Materials | 7% | Yahoo Finance | REMX |
-| Nickel | Battery Materials | 5% | Yahoo Finance | JJN |
-| Aluminum | Structural | 12% | Yahoo Finance | JJU |
-| Steel | Structural | 22% | Yahoo Finance | SLX |
-| Copper | Electrical | 6% | Yahoo Finance | HG=F |
-| Platinum | Catalysts | 4% | Yahoo Finance | PPLT |
-| Rubber | Polymers | 3% | Yahoo Finance | RUBB.L |
+| Commodity | Category | BOM Weight | Preferred Method | Primary Driver | Risk Flag |
+|-----------|----------|------------|-----------------|----------------|----------|
+| Steel | Raw Material | 22% | ARIMA | Iron ore prices | Tariff exposure |
+| Lithium | Battery Material | 18% | XGBoost | EV demand growth | Supply concentration |
+| Aluminum | Raw Material | 12% | ARIMA | Energy cost | Carbon border tax |
+| Cobalt | Battery Material | 7% | XGBoost | DRC supply disruptions | Geopolitical risk |
+| Copper | Raw Material | 6% | ARIMA | Construction demand | Green transition demand |
+| Nickel | Battery Material | 5% | XGBoost | Indonesia export policy | EV demand spike |
+| Platinum | Precious Metal | 4% | XGBoost | Autocatalyst demand | Hydrogen economy |
+| Natural Gas | Energy | 4% | ARIMA | TTF/Henry Hub spread | Geopolitical supply risk |
+| Palladium | Precious Metal | 3% | XGBoost | Autocatalyst demand | Russian supply risk |
+| Polypropylene | Polymer | 3% | ARIMA | Naphtha cost | Petrochemical cycle |
+| Rhodium | Precious Metal | 2% | XGBoost | Emissions regulation | Extreme illiquidity |
+| ABS Resin | Polymer | 2% | ARIMA | Styrene/butadiene prices | Petrochemical cycle |
 
 ---
 
 ## Model Details
 
-### Commodity Forecast Model
-- **SARIMAX**: (1,1,1)(1,1,1,12) — captures trend, seasonality, stationarity
-- **XGBoost**: 300 trees, depth 6, with engineered features:
+### Commodity Forecast Model (4 Methods)
+
+**Method 1 — SARIMAX (Baseline)**
+- Order: (1,1,1)(1,1,1,12) — captures trend, seasonality, stationarity
+- Best for: Stable commodities with seasonal patterns (Steel, Aluminum, Copper, Natural Gas, Polypropylene, ABS Resin)
+
+**Method 2 — XGBoost (Macro-Driven)**
+- 300 trees, depth 6, with engineered features:
   - Lag features: 1, 3, 6, 12 months
   - Rolling statistics: 3, 6, 12 month MA and std
   - Percentage changes: 1, 3, 6 month momentum
-  - Macro indicators: GDP, interest rates, FX, oil (with lags)
+  - Macro indicators: Manufacturing PMI, DXY, China PPI, Baltic Dry, US PPI, EV sales growth (with lags)
   - Calendar: cyclical month encoding
+- Best for: Supply-shock-sensitive commodities (Platinum, Palladium, Rhodium, Lithium, Cobalt, Nickel)
+
+**Method 3 — Futures Curve Extraction (Market-Implied)**
+- Extracts forward prices from exchange-traded futures term structure
+- Supports 7 liquid commodities: Steel, Aluminum, Copper, Platinum, Palladium, Nickel, Natural Gas
+- Generates synthetic curves (contango for industrial metals, backwardation for PGMs, seasonal for energy)
+- Up to 18-month forward price extraction
+
+**Method 4 — Scenario Analysis (Expert + Model Hybrid)**
+- Bear / Base / Bull price targets for each commodity (12-month horizon)
+- Macro-driven probability weight shifting based on:
+  - PMI (below 50 → overweight Bear, above 55 → overweight Bull)
+  - DXY (strong dollar → hawkish on commodities)
+  - Supply disruption risk (increases Bull probability)
+- Weighted expected price = P(Bear) × Bear + P(Base) × Base + P(Bull) × Bull
+
+### Variance Tracking & Monthly Update Process
+- Monthly variance: `|Actual - Prior Forecast| / Prior Forecast`
+- **> 5% variance**: Alert triggered
+- **> 10% variance**: L6 Governance review escalation
+- JSONL-based variance history with full audit trail
+- 7-step monthly update workflow: Receive prices → Validate → Reforecast → Revise scenarios → Track variance → Escalate if needed → Publish
 
 ### Preset Scenarios
 | Scenario | Demand | Commodity | FX |

@@ -100,7 +100,8 @@ def prepare_commodity_features(
     # Calendar
     df = add_calendar_features(df)
 
-    # Drop rows with NaN from lagging
+    # Drop rows with NaN from lagging, and replace inf values
+    df = df.replace([np.inf, -np.inf], np.nan)
     n_before = len(df)
     df = df.dropna().reset_index(drop=True)
     logger.info(f"Feature matrix for {target_commodity}: {len(df)} rows (dropped {n_before - len(df)} for lags)")

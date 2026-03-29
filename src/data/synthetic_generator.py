@@ -19,25 +19,35 @@ from loguru import logger
 from src.config import get_project_root, get_settings
 
 
-# ── Realistic base prices & volatilities for automotive commodities ──
+# ── Realistic base prices & volatilities for automotive commodities (12 JLR categories) ──
 COMMODITY_PARAMS = {
-    "Lithium":   {"base": 25000, "vol": 0.35, "trend": 0.02, "mean_rev": 0.05},
-    "Cobalt":    {"base": 33000, "vol": 0.28, "trend": 0.01, "mean_rev": 0.06},
-    "Nickel":    {"base": 18000, "vol": 0.22, "trend": 0.01, "mean_rev": 0.07},
-    "Aluminum":  {"base": 2400,  "vol": 0.15, "trend": 0.005, "mean_rev": 0.10},
-    "Steel":     {"base": 800,   "vol": 0.12, "trend": 0.003, "mean_rev": 0.12},
-    "Copper":    {"base": 8500,  "vol": 0.18, "trend": 0.008, "mean_rev": 0.08},
-    "Platinum":  {"base": 950,   "vol": 0.20, "trend": -0.005, "mean_rev": 0.09},
-    "Rubber":    {"base": 1600,  "vol": 0.14, "trend": 0.002, "mean_rev": 0.11},
+    "Steel":         {"base": 490,   "vol": 0.12, "trend": 0.003, "mean_rev": 0.12},
+    "Aluminum":      {"base": 2350,  "vol": 0.15, "trend": 0.005, "mean_rev": 0.10},
+    "Copper":        {"base": 9800,  "vol": 0.18, "trend": 0.008, "mean_rev": 0.08},
+    "Platinum":      {"base": 950,   "vol": 0.20, "trend": -0.005, "mean_rev": 0.09},
+    "Palladium":     {"base": 1000,  "vol": 0.25, "trend": -0.01, "mean_rev": 0.07},
+    "Rhodium":       {"base": 4500,  "vol": 0.35, "trend": -0.02, "mean_rev": 0.05},
+    "Lithium":       {"base": 10,    "vol": 0.35, "trend": 0.02, "mean_rev": 0.05},
+    "Cobalt":        {"base": 25000, "vol": 0.28, "trend": 0.01, "mean_rev": 0.06},
+    "Nickel":        {"base": 16500, "vol": 0.22, "trend": 0.01, "mean_rev": 0.07},
+    "Natural_Gas":   {"base": 35,    "vol": 0.30, "trend": 0.005, "mean_rev": 0.10},
+    "Polypropylene": {"base": 1200,  "vol": 0.14, "trend": 0.002, "mean_rev": 0.11},
+    "ABS_Resin":     {"base": 1500,  "vol": 0.14, "trend": 0.002, "mean_rev": 0.11},
 }
 
 MACRO_PARAMS = {
-    "gdp_growth_pct":    {"base": 2.5, "vol": 0.8, "mean_rev": 0.15},
-    "interest_rate_pct":  {"base": 4.5, "vol": 0.5, "mean_rev": 0.10},
-    "usd_gbp":           {"base": 0.79, "vol": 0.06, "mean_rev": 0.12},
-    "usd_eur":           {"base": 0.92, "vol": 0.05, "mean_rev": 0.12},
-    "cpi_index":         {"base": 110, "vol": 1.5, "mean_rev": 0.03},
-    "oil_price_usd":     {"base": 80, "vol": 0.25, "mean_rev": 0.08},
+    "gdp_growth_pct":          {"base": 2.5, "vol": 0.8, "mean_rev": 0.15},
+    "interest_rate_pct":       {"base": 4.5, "vol": 0.5, "mean_rev": 0.10},
+    "usd_gbp":                 {"base": 0.79, "vol": 0.06, "mean_rev": 0.12},
+    "usd_eur":                 {"base": 0.92, "vol": 0.05, "mean_rev": 0.12},
+    "cpi_index":               {"base": 110, "vol": 1.5, "mean_rev": 0.03},
+    "oil_price_usd":           {"base": 80, "vol": 0.25, "mean_rev": 0.08},
+    "manufacturing_pmi":       {"base": 51, "vol": 3.0, "mean_rev": 0.20},
+    "china_ppi_yoy":           {"base": 1.0, "vol": 2.5, "mean_rev": 0.15},
+    "dxy_index":               {"base": 102, "vol": 4.0, "mean_rev": 0.10},
+    "baltic_dry_index":        {"base": 1500, "vol": 0.30, "mean_rev": 0.08},
+    "us_ppi_yoy":              {"base": 2.0, "vol": 1.5, "mean_rev": 0.12},
+    "ev_sales_growth_pct":     {"base": 17.5, "vol": 5.0, "mean_rev": 0.10},
 }
 
 
@@ -188,11 +198,11 @@ def generate_bom_data() -> pd.DataFrame:
 
     for seg in settings["vehicle_segments"]:
         for comm in settings["commodities"]:
-            # BOM weight varies by segment (EVs use more lithium/cobalt)
+            # BOM weight varies by segment (EVs use more battery materials)
             multiplier = 1.0
-            if seg["segment"] == "EV" and comm["category"] == "battery_materials":
+            if seg["segment"] == "EV" and comm["category"] == "battery_material":
                 multiplier = 2.5
-            elif seg["segment"] == "Performance" and comm["category"] == "structural":
+            elif seg["segment"] == "Performance" and comm["category"] == "raw_material":
                 multiplier = 1.3
 
             records.append({

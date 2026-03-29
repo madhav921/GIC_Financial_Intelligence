@@ -33,48 +33,181 @@ data_sources:
     start_date: "2018-01-01"
   use_real_data: true       # false = synthetic only
 
-# ── Commodities Tracked ──────────────────────────────────────────
+# ── Commodities Tracked (JLR-Relevant — 12 Categories) ──────────
 commodities:
-  - name: "Lithium"
-    unit: "USD/tonne"
-    category: "battery_materials"
-    bom_weight: 0.18
-    yfinance_ticker: "LIT"
-  - name: "Cobalt"
-    unit: "USD/tonne"
-    category: "battery_materials"
-    bom_weight: 0.07
-    yfinance_ticker: "REMX"
-  - name: "Nickel"
-    unit: "USD/tonne"
-    category: "battery_materials"
-    bom_weight: 0.05
-    yfinance_ticker: "JJN"
-  - name: "Aluminum"
-    unit: "USD/tonne"
-    category: "structural"
-    bom_weight: 0.12
-    yfinance_ticker: "JJU"
   - name: "Steel"
     unit: "USD/tonne"
-    category: "structural"
+    category: "raw_material"
     bom_weight: 0.22
     yfinance_ticker: "SLX"
+    index_source: "LME / CRU Steel"
+    relevance: "Body panels, chassis, structural"
+    preferred_method: "arima"
+    primary_driver: "China steel output, construction PMI"
+    secondary_driver: "Energy cost, scrap prices"
+    risk_flag: "China export duties"
+  - name: "Aluminum"
+    unit: "USD/tonne"
+    category: "raw_material"
+    bom_weight: 0.12
+    yfinance_ticker: "JJU"
+    index_source: "LME Aluminium 3M"
+    relevance: "Body structure, castings, closures"
+    preferred_method: "arima"
+    primary_driver: "Energy cost (smelting), LME stocks"
+    secondary_driver: "China production quotas"
+    risk_flag: "Power rationing"
   - name: "Copper"
     unit: "USD/tonne"
-    category: "electrical"
+    category: "raw_material"
     bom_weight: 0.06
     yfinance_ticker: "HG=F"
+    index_source: "LME Copper 3M"
+    relevance: "Wiring harness, EV motors"
+    preferred_method: "arima"
+    primary_driver: "Global PMI, EV demand"
+    secondary_driver: "Chile/Peru mine output"
+    risk_flag: "Strike risk"
   - name: "Platinum"
-    unit: "USD/oz"
-    category: "catalysts"
+    unit: "USD/troy_oz"
+    category: "precious_metal"
     bom_weight: 0.04
     yfinance_ticker: "PPLT"
-  - name: "Rubber"
-    unit: "USD/tonne"
-    category: "polymers"
+    index_source: "LPPM / NYMEX"
+    relevance: "Catalytic converters, sensors"
+    preferred_method: "xgboost"
+    primary_driver: "Autocatalyst demand, SA mine supply"
+    secondary_driver: "Hydrogen fuel cell demand"
+    risk_flag: "EV transition cannibalism"
+  - name: "Palladium"
+    unit: "USD/troy_oz"
+    category: "precious_metal"
     bom_weight: 0.03
-    yfinance_ticker: "RUBB.L"
+    yfinance_ticker: "PALL"
+    index_source: "LPPM / NYMEX"
+    relevance: "Catalytic converters (petrol)"
+    preferred_method: "xgboost"
+    primary_driver: "Autocatalyst demand, SA mine supply"
+    secondary_driver: "Hydrogen fuel cell demand"
+    risk_flag: "EV transition cannibalism"
+  - name: "Rhodium"
+    unit: "USD/troy_oz"
+    category: "precious_metal"
+    bom_weight: 0.02
+    yfinance_ticker: null
+    index_source: "LPPM"
+    relevance: "Catalytic converters"
+    preferred_method: "xgboost"
+    primary_driver: "Autocatalyst demand, SA mine supply"
+    secondary_driver: "Recycling supply"
+    risk_flag: "Extreme illiquidity"
+  - name: "Lithium"
+    unit: "USD/kg"
+    category: "battery_material"
+    bom_weight: 0.18
+    yfinance_ticker: "LIT"
+    index_source: "Fastmarkets / Benchmark Minerals"
+    relevance: "EV battery packs"
+    preferred_method: "xgboost"
+    primary_driver: "EV battery demand, Chile/Argentina brine"
+    secondary_driver: "New mine supply"
+    risk_flag: "Oversupply 2025-26"
+  - name: "Cobalt"
+    unit: "USD/tonne"
+    category: "battery_material"
+    bom_weight: 0.07
+    yfinance_ticker: "REMX"
+    index_source: "LME Cobalt"
+    relevance: "EV battery cathodes"
+    preferred_method: "xgboost"
+    primary_driver: "DRC mining output"
+    secondary_driver: "EV cathode chemistry shift"
+    risk_flag: "LFP substitution risk"
+  - name: "Nickel"
+    unit: "USD/tonne"
+    category: "battery_material"
+    bom_weight: 0.05
+    yfinance_ticker: "JJN"
+    index_source: "LME Nickel 3M"
+    relevance: "NMC battery chemistry"
+    preferred_method: "xgboost"
+    primary_driver: "EV battery demand"
+    secondary_driver: "Indonesia supply"
+    risk_flag: "LME squeeze risk"
+  - name: "Natural_Gas"
+    unit: "p/therm"
+    category: "energy"
+    bom_weight: 0.04
+    yfinance_ticker: "NG=F"
+    index_source: "TTF / NBP / ICE"
+    relevance: "Manufacturing energy cost"
+    preferred_method: "arima"
+    primary_driver: "TTF gas price, LNG cargo flows"
+    secondary_driver: "Weather, storage levels"
+    risk_flag: "Geopolitical supply risk"
+  - name: "Polypropylene"
+    unit: "USD/tonne"
+    category: "polymer"
+    bom_weight: 0.03
+    yfinance_ticker: null
+    index_source: "ICIS / Platts"
+    relevance: "Interior trim, bumpers"
+    preferred_method: "arima"
+    primary_driver: "Oil/naphtha price"
+    secondary_driver: "Petrochemical capacity"
+    risk_flag: "Feedstock volatility"
+  - name: "ABS_Resin"
+    unit: "USD/tonne"
+    category: "polymer"
+    bom_weight: 0.02
+    yfinance_ticker: null
+    index_source: "ICIS"
+    relevance: "Interior panels, dashboards"
+    preferred_method: "arima"
+    primary_driver: "Oil/naphtha price"
+    secondary_driver: "Petrochemical capacity"
+    risk_flag: "Feedstock volatility"
+
+# ── Commodity Scenario Framework ─────────────────────────────────
+commodity_scenarios:
+  macro_assumptions:
+    global_manufacturing_pmi:
+      bear: 48
+      base: 51
+      bull: 53
+    china_gdp_growth:
+      bear: 4.0
+      base: 4.75
+      bull: 5.5
+    usd_dxy:
+      bear: 106
+      base: 102
+      bull: 98
+    energy_ttf:
+      bear: 45
+      base: 35
+      bull: 25
+    ev_demand_growth:
+      bear: 0.10
+      base: 0.175
+      bull: 0.25
+    supply_disruption_risk:
+      bear: "high"
+      base: "low"
+      bull: "very_low"
+  price_scenarios_12m:
+    Steel:       { current: 490, bear: 380, base: 510, bull: 640 }
+    Aluminum:    { current: 2350, bear: 1900, base: 2500, bull: 3100 }
+    Copper:      { current: 9800, bear: 8200, base: 10500, bull: 12800 }
+    Lithium:     { current: 10, bear: 7, base: 12, bull: 20 }
+    Cobalt:      { current: 25000, bear: 18000, base: 28000, bull: 40000 }
+    Nickel:      { current: 16500, bear: 13000, base: 18000, bull: 24000 }
+    Palladium:   { current: 1000, bear: 700, base: 1100, bull: 1500 }
+    Natural_Gas: { current: 35, bear: 20, base: 38, bull: 60 }
+    Platinum:    { current: 950, bear: 700, base: 1050, bull: 1400 }
+    Rhodium:     { current: 4500, bear: 3000, base: 5000, bull: 7500 }
+    Polypropylene: { current: 1200, bear: 900, base: 1300, bull: 1600 }
+    ABS_Resin:   { current: 1500, bear: 1100, base: 1600, bull: 2000 }
 
 # ── Vehicle Segments (JLR context) ───────────────────────────────
 vehicle_segments:
