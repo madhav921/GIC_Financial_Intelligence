@@ -23,6 +23,8 @@ from sklearn.linear_model import Ridge
 from sklearn.metrics import r2_score
 from sklearn.preprocessing import StandardScaler
 
+from src.config import get_settings
+
 
 @dataclass
 class ElasticityResult:
@@ -141,7 +143,6 @@ class PriceElasticityModel:
         macro_df: pd.DataFrame,
         commodity_df: pd.DataFrame,
     ) -> dict[str, ElasticityResult]:
-        from src.config import get_settings
         settings = get_settings()
         results = {}
         for seg in settings["vehicle_segments"]:

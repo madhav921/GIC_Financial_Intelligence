@@ -11,12 +11,14 @@ Shows:
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import polars as pl
 import streamlit as st
 
 from src.dashboard.helpers import format_currency, load_parquet
+from src.config import get_settings
 
 
 @st.cache_data(ttl=300)
@@ -41,13 +43,12 @@ def _get_base_revenue() -> float:
     except Exception:
         from src.config import get_settings
         settings = get_settings()
-        # Estimate from config defaults
-        avg_price = settings["revenue"]["avg_vehicle_price"]
-        total_volume = sum(
-            seg.get("base_volume", 0) * 12
-            for seg in settings["revenue"]["segments"]
+        segs = settings["vehicle_segments"]
+        total_revenue_config = sum(
+            s["avg_price_usd"] * s.get("annual_volume", 0)
+            for s in segs
         )
-        return avg_price * total_volume if total_volume > 0 else 25_000_000_000
+        return total_revenue_config if total_revenue_config > 0 else 25_000_000_000
 
 
 def render():
@@ -80,7 +81,7 @@ def _render_monte_carlo():
         commodity_mean = st.slider("Commodity Bias (%)", -30, 30, 0) / 100
         use_fat_tails = st.checkbox("Fat-Tailed Distribution (t-dist)", value=True)
 
-        run_sim = st.button("Run Simulation", type="primary", use_container_width=True)
+        run_sim = st.button("Run Simulation", type="primary", width='stretch')
 
     with col2:
         if run_sim:
@@ -96,10 +97,9 @@ def _render_monte_carlo():
 
                 # Base financials — derived from actual financial model if data available
                 base_revenue = _get_base_revenue()
-                from src.config import get_settings
                 _settings = get_settings()
                 base_cogs_pct = _settings["financial"]["base_cogs_pct"]
-                material_fraction = 0.45
+                material_fraction = _settings["financial"]["material_cogs_fraction"]
 
                 revenue_dist = base_revenue * (1 + demand_shocks)
                 base_cogs = base_revenue * base_cogs_pct
@@ -145,7 +145,7 @@ def _render_monte_carlo():
                     height=450,
                     template="plotly_dark",
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
 
                 # Percentile table
                 st.markdown("### Percentile Analysis")
@@ -161,7 +161,7 @@ def _render_monte_carlo():
                     })
                 st.dataframe(
                     __import__("pandas").DataFrame(perc_data),
-                    use_container_width=True,
+                    width='stretch',
                     hide_index=True,
                 )
         else:
@@ -173,7 +173,6 @@ def _render_what_if():
     st.subheader("What-If Scenario Builder")
     st.markdown("*Adjust key drivers and see real-time P&L impact*")
 
-    from src.config import get_settings
     settings = get_settings()
 
     col1, col2 = st.columns(2)
@@ -195,7 +194,7 @@ def _render_what_if():
     base_cogs_pct = settings["financial"]["base_cogs_pct"]
     warranty_pct = settings["financial"]["warranty_reserve_pct"]
     tax_rate = settings["financial"]["tax_rate"]
-    material_fraction = 0.45
+    material_fraction = settings["financial"]["material_cogs_fraction"]
     labor_fraction = 0.30
 
     adj_revenue = base_revenue * (1 + demand_change / 100) * (1 + price_change / 100)
@@ -208,7 +207,8 @@ def _render_what_if():
 
     gross_margin = adj_revenue - adj_cogs
     warranty = adj_revenue * warranty_pct
-    operating_income = gross_margin - warranty - 96_000_000
+    annual_dep = settings["financial"].get("monthly_depreciation_usd", 8_000_000) * 12
+    operating_income = gross_margin - warranty - annual_dep
     tax = max(0, operating_income * tax_rate)
     net_income = operating_income - tax
 
@@ -228,36 +228,34 @@ def _render_what_if():
 
     # Waterfall
     fig = go.Figure(go.Waterfall(
-        x=["Base Revenue", "Volume", "Price", "Incentive", "COGS Adj", "FX & Labor", "Net Margin"],
+        x=["Base Revenue", "Volume", "Price", "Incentive", "COGS Impact", "Gross Margin"],
         y=[
             base_revenue,
             base_revenue * demand_change / 100,
             base_revenue * price_change / 100,
             -base_revenue * incentive_change / 100,
             -(adj_cogs - base_revenue * base_cogs_pct),
-            -(adj_cogs * 0.15 * fx_change / 100 + adj_cogs * labor_fraction * labor_change / 100),
             gross_margin,
         ],
-        measure=["absolute", "relative", "relative", "relative", "relative", "relative", "total"],
+        measure=["absolute", "relative", "relative", "relative", "relative", "total"],
         increasing=dict(marker=dict(color="#00d4aa")),
         decreasing=dict(marker=dict(color="#ff6b6b")),
         totals=dict(marker=dict(color="#007aff")),
     ))
     fig.update_layout(height=400, template="plotly_dark", title="Scenario Waterfall")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
 
 def _render_scenario_comparison():
     """Compare preset scenarios."""
     st.subheader("Preset Scenario Comparison")
 
-    from src.config import get_settings
     settings = get_settings()
     presets = settings["simulation"]["scenario_presets"]
 
     base_revenue = _get_base_revenue()
     base_cogs_pct = settings["financial"]["base_cogs_pct"]
-    material_fraction = 0.45
+    material_fraction = settings["financial"]["material_cogs_fraction"]
 
     records = []
     for name, params in presets.items():
@@ -281,7 +279,7 @@ def _render_scenario_comparison():
         })
 
     import pandas as pd
-    st.dataframe(pd.DataFrame(records), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(records), width='stretch', hide_index=True)
 
     # Chart
     margin_values = []
@@ -305,4 +303,4 @@ def _render_scenario_comparison():
         height=400,
         template="plotly_dark",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')

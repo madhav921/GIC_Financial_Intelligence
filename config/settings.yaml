@@ -106,10 +106,12 @@ forecast:
 # ── Financial Model ──────────────────────────────────────────────
 financial:
   base_cogs_pct: 0.68        # base COGS as % of revenue
+  material_cogs_fraction: 0.45  # fraction of COGS driven by raw material commodity prices
   warranty_reserve_pct: 0.025
   tax_rate: 0.21
   discount_rate: 0.08
   depreciation_years: 7
+  monthly_depreciation_usd: 8_000_000  # monthly straight-line depreciation (CapEx approx)
 
 # ── Monte Carlo Simulation ───────────────────────────────────────
 simulation:

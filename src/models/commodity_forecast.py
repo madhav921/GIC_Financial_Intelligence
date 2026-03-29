@@ -26,15 +26,13 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from loguru import logger
-from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error, mean_squared_error
 from sklearn.model_selection import TimeSeriesSplit
-from sklearn.preprocessing import StandardScaler
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from xgboost import XGBRegressor
 
 from src.config import get_project_root, get_settings
-from src.data.feature_engineering import prepare_commodity_features
+from src.data.feature_engineering import compute_directional_accuracy, prepare_commodity_features
 from src.models.model_registry import ModelRegistry
 
 
@@ -52,22 +50,6 @@ class ForecastResult:
     metrics: dict[str, float] = field(default_factory=dict)
     feature_importance: dict[str, float] = field(default_factory=dict)
 
-
-@dataclass
-class BacktestResult:
-    """Container for backtesting outputs."""
-    commodity: str
-    model_type: str
-    dates: list[str]
-    actuals: list[float]
-    predictions: list[float]
-    errors: list[float]
-    pct_errors: list[float]
-    mae: float
-    rmse: float
-    mape: float
-    directional_accuracy: float  # % of times direction was correct
-    hit_rate_10pct: float        # % within ±10% of actual
 
 
 def _rsi(series: pd.Series, period: int = 14) -> pd.Series:
@@ -222,7 +204,6 @@ class XGBoostForecaster:
         p.update(params)
         self.model = XGBRegressor(**p)
         self.feature_names: list[str] = []
-        self.scaler: StandardScaler | None = None
 
     def fit(
         self,
@@ -253,9 +234,7 @@ class XGBoostForecaster:
         mape = float(mean_absolute_percentage_error(y_eval, preds) * 100)
 
         # Directional accuracy
-        actual_dir = np.sign(np.diff(y_eval.values))
-        pred_dir = np.sign(np.diff(preds))
-        dir_acc = float(np.mean(actual_dir == pred_dir)) * 100 if len(actual_dir) > 0 else 0.0
+        dir_acc = compute_directional_accuracy(y_eval.values, preds)
 
         metrics = {
             "rmse": rmse,
@@ -442,7 +421,7 @@ class CommodityForecastModel:
         for train_idx, val_idx in tscv.split(X):
             if len(train_idx) < 12 or len(val_idx) < 3:
                 continue
-            model = XGBRegressor(n_estimators=300, max_depth=5, learning_rate=0.05, random_state=42)
+            model = XGBRegressor(**XGBoostForecaster.DEFAULT_PARAMS)
             model.fit(X[train_idx], y[train_idx], verbose=False)
             preds = model.predict(X[val_idx])
             maes.append(mean_absolute_error(y[val_idx], preds))
@@ -450,7 +429,7 @@ class CommodityForecastModel:
             actual_dir = np.sign(np.diff(y[val_idx]))
             pred_dir = np.sign(np.diff(preds))
             if len(actual_dir) > 0:
-                dir_accs.append(float(np.mean(actual_dir == pred_dir)) * 100)
+                dir_accs.append(compute_directional_accuracy(y[val_idx], preds))
 
         cv_metrics = {
             "cv_mae_mean": float(np.mean(maes)) if maes else float("nan"),
@@ -586,11 +565,11 @@ class CommodityForecastModel:
         xgb_result = self.forecast_xgboost(commodity, commodity_df, macro_df)
 
         # Weight by inverse CV MAPE (lower error = higher weight)
-        sarimax_mape = self.sarimax_models[commodity].model_fit.fittedvalues
+        sarimax_fitted = self.sarimax_models[commodity].model_fit.fittedvalues
         sarimax_train_mape = float(
             mean_absolute_percentage_error(
-                commodity_df[commodity].iloc[-len(sarimax_mape):],
-                sarimax_mape
+                commodity_df[commodity].iloc[-len(sarimax_fitted):],
+                sarimax_fitted
             ) * 100
         )
         xgb_mape = self._cv_metrics.get(commodity, {}).get("cv_mape_mean", sarimax_train_mape)
@@ -766,302 +745,3 @@ class CommodityForecastModel:
         for commodity, metrics in self._cv_metrics.items():
             records.append({"commodity": commodity, **metrics})
         return pd.DataFrame(records)
-
-
-
-@dataclass
-class ForecastResult:
-    """Container for forecast outputs."""
-    commodity: str
-    dates: list[str]
-    point_forecast: list[float]
-    lower_80: list[float]
-    upper_80: list[float]
-    lower_95: list[float]
-    upper_95: list[float]
-    model_type: str
-    metrics: dict[str, float] = field(default_factory=dict)
-
-
-class SARIMAXForecaster:
-    """SARIMAX-based commodity price forecaster."""
-
-    def __init__(self, order: tuple = (1, 1, 1), seasonal_order: tuple = (1, 1, 1, 12)):
-        self.order = order
-        self.seasonal_order = seasonal_order
-        self.model_fit = None
-
-    def fit(self, series: pd.Series, exog: pd.DataFrame | None = None) -> dict[str, float]:
-        """Fit SARIMAX model and return in-sample metrics."""
-        model = SARIMAX(
-            series,
-            exog=exog,
-            order=self.order,
-            seasonal_order=self.seasonal_order,
-            enforce_stationarity=False,
-            enforce_invertibility=False,
-        )
-        self.model_fit = model.fit(disp=False, maxiter=200)
-        fitted = self.model_fit.fittedvalues
-        metrics = {
-            "aic": self.model_fit.aic,
-            "bic": self.model_fit.bic,
-            "mae": mean_absolute_error(series, fitted),
-            "mape": mean_absolute_percentage_error(series, fitted) * 100,
-        }
-        logger.info(f"SARIMAX fitted — AIC={metrics['aic']:.1f}, MAE={metrics['mae']:.1f}")
-        return metrics
-
-    def predict(
-        self, steps: int, exog_future: pd.DataFrame | None = None
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Forecast with confidence intervals."""
-        forecast = self.model_fit.get_forecast(steps=steps, exog=exog_future)
-        mean = forecast.predicted_mean.values
-        ci_80 = forecast.conf_int(alpha=0.20).values
-        ci_95 = forecast.conf_int(alpha=0.05).values
-        return mean, ci_80, ci_95
-
-
-class XGBoostForecaster:
-    """XGBoost-based commodity price forecaster with time-series features."""
-
-    def __init__(self, **params):
-        default_params = {
-            "n_estimators": 300,
-            "max_depth": 6,
-            "learning_rate": 0.05,
-            "subsample": 0.8,
-            "colsample_bytree": 0.8,
-            "reg_alpha": 0.1,
-            "reg_lambda": 1.0,
-            "random_state": 42,
-        }
-        default_params.update(params)
-        self.model = XGBRegressor(**default_params)
-        self.feature_names: list[str] = []
-
-    def fit(
-        self,
-        X_train: pd.DataFrame,
-        y_train: pd.Series,
-        X_val: pd.DataFrame | None = None,
-        y_val: pd.Series | None = None,
-    ) -> dict[str, float]:
-        """Train XGBoost and return validation metrics."""
-        self.feature_names = list(X_train.columns)
-
-        eval_set = [(X_train, y_train)]
-        if X_val is not None and y_val is not None:
-            eval_set.append((X_val, y_val))
-
-        self.model.fit(
-            X_train, y_train,
-            eval_set=eval_set,
-            verbose=False,
-        )
-
-        # Compute metrics on validation (or train if no val)
-        X_eval = X_val if X_val is not None else X_train
-        y_eval = y_val if y_val is not None else y_train
-        preds = self.model.predict(X_eval)
-
-        metrics = {
-            "rmse": float(np.sqrt(mean_squared_error(y_eval, preds))),
-            "mae": float(mean_absolute_error(y_eval, preds)),
-            "mape": float(mean_absolute_percentage_error(y_eval, preds) * 100),
-        }
-        logger.info(f"XGBoost fitted — RMSE={metrics['rmse']:.1f}, MAE={metrics['mae']:.1f}")
-        return metrics
-
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
-        return self.model.predict(X)
-
-    def feature_importance(self) -> pd.DataFrame:
-        """Return feature importance scores."""
-        importance = self.model.feature_importances_
-        return pd.DataFrame({
-            "feature": self.feature_names,
-            "importance": importance,
-        }).sort_values("importance", ascending=False)
-
-
-class CommodityForecastModel:
-    """
-    Orchestrates commodity price forecasting across multiple approaches.
-
-    This is the core Commodity Impact Model from Layer 3 of the architecture.
-    It generates a Commodity Index that feeds into Layer 2 (Driver Engine)
-    cost drivers.
-    """
-
-    def __init__(self):
-        self.settings = get_settings()
-        self.horizon = self.settings["forecast"]["horizon_months"]
-        self.registry = ModelRegistry()
-        self.sarimax_models: dict[str, SARIMAXForecaster] = {}
-        self.xgb_models: dict[str, XGBoostForecaster] = {}
-
-    def train_sarimax(
-        self, commodity: str, price_series: pd.Series, exog: pd.DataFrame | None = None,
-    ) -> dict[str, float]:
-        """Train SARIMAX model for a single commodity."""
-        model = SARIMAXForecaster()
-        metrics = model.fit(price_series, exog=exog)
-        self.sarimax_models[commodity] = model
-        return metrics
-
-    def train_xgboost(
-        self,
-        commodity: str,
-        commodity_df: pd.DataFrame,
-        macro_df: pd.DataFrame,
-        test_size: int = 12,
-    ) -> dict[str, float]:
-        """Train XGBoost model for a single commodity using engineered features."""
-        feat_df = prepare_commodity_features(
-            commodity_df, macro_df, commodity,
-            lags=self.settings["forecast"]["feature_lag_months"],
-        )
-
-        # Time-series split
-        feature_cols = [c for c in feat_df.columns if c not in ("date", "target")]
-        X = feat_df[feature_cols]
-        y = feat_df["target"]
-
-        X_train, X_test = X.iloc[:-test_size], X.iloc[-test_size:]
-        y_train, y_test = y.iloc[:-test_size], y.iloc[-test_size:]
-
-        model = XGBoostForecaster()
-        metrics = model.fit(X_train, y_train, X_test, y_test)
-        self.xgb_models[commodity] = model
-
-        # Save model
-        self.registry.save_model(
-            model.model,
-            f"commodity_xgb_{commodity.lower()}",
-            metrics=metrics,
-            features=feature_cols,
-        )
-
-        return metrics
-
-    def cross_validate(
-        self,
-        commodity: str,
-        commodity_df: pd.DataFrame,
-        macro_df: pd.DataFrame,
-        n_splits: int = 5,
-    ) -> dict[str, float]:
-        """Time-series cross-validation for XGBoost model."""
-        feat_df = prepare_commodity_features(
-            commodity_df, macro_df, commodity,
-            lags=self.settings["forecast"]["feature_lag_months"],
-        )
-        feature_cols = [c for c in feat_df.columns if c not in ("date", "target")]
-        X = feat_df[feature_cols].values
-        y = feat_df["target"].values
-
-        tscv = TimeSeriesSplit(n_splits=n_splits)
-        maes, mapes = [], []
-
-        for train_idx, val_idx in tscv.split(X):
-            model = XGBRegressor(
-                n_estimators=300, max_depth=6, learning_rate=0.05,
-                random_state=42,
-            )
-            model.fit(X[train_idx], y[train_idx], verbose=False)
-            preds = model.predict(X[val_idx])
-            maes.append(mean_absolute_error(y[val_idx], preds))
-            mapes.append(mean_absolute_percentage_error(y[val_idx], preds) * 100)
-
-        cv_metrics = {
-            "cv_mae_mean": float(np.mean(maes)),
-            "cv_mae_std": float(np.std(maes)),
-            "cv_mape_mean": float(np.mean(mapes)),
-            "cv_mape_std": float(np.std(mapes)),
-        }
-        logger.info(
-            f"CV for {commodity}: MAE={cv_metrics['cv_mae_mean']:.1f}±{cv_metrics['cv_mae_std']:.1f}"
-        )
-        return cv_metrics
-
-    def forecast_sarimax(self, commodity: str) -> ForecastResult:
-        """Generate SARIMAX forecast for a commodity."""
-        model = self.sarimax_models.get(commodity)
-        if model is None:
-            raise ValueError(f"SARIMAX model not trained for {commodity}")
-
-        mean, ci_80, ci_95 = model.predict(self.horizon)
-        future_dates = pd.date_range(
-            pd.Timestamp.now().normalize(), periods=self.horizon, freq="MS"
-        )
-
-        return ForecastResult(
-            commodity=commodity,
-            dates=[d.strftime("%Y-%m-%d") for d in future_dates],
-            point_forecast=mean.tolist(),
-            lower_80=ci_80[:, 0].tolist(),
-            upper_80=ci_80[:, 1].tolist(),
-            lower_95=ci_95[:, 0].tolist(),
-            upper_95=ci_95[:, 1].tolist(),
-            model_type="SARIMAX",
-        )
-
-    def train_all_commodities(
-        self,
-        commodity_df: pd.DataFrame,
-        macro_df: pd.DataFrame,
-    ) -> dict[str, dict[str, float]]:
-        """Train models for every configured commodity."""
-        results = {}
-        commodity_cols = [c for c in commodity_df.columns if c != "date"]
-
-        for commodity in commodity_cols:
-            logger.info(f"Training models for {commodity}...")
-
-            # SARIMAX
-            sarimax_metrics = self.train_sarimax(commodity, commodity_df[commodity])
-
-            # XGBoost
-            xgb_metrics = self.train_xgboost(commodity, commodity_df, macro_df)
-
-            # Cross-validation
-            cv_metrics = self.cross_validate(commodity, commodity_df, macro_df)
-
-            results[commodity] = {
-                "sarimax": sarimax_metrics,
-                "xgboost": xgb_metrics,
-                "cross_validation": cv_metrics,
-            }
-
-        return results
-
-    def generate_commodity_index(
-        self, commodity_df: pd.DataFrame
-    ) -> pd.DataFrame:
-        """
-        Compute a weighted Commodity Index from individual prices.
-        Weights come from BOM configuration.
-        """
-        settings = get_settings()
-        weights = {c["name"]: c["bom_weight"] for c in settings["commodities"]}
-
-        index_df = commodity_df[["date"]].copy()
-        commodity_cols = [c for c in commodity_df.columns if c != "date"]
-
-        # Normalize each commodity to base=100 at first observation
-        normalized = pd.DataFrame()
-        for col in commodity_cols:
-            base_val = commodity_df[col].iloc[0]
-            normalized[col] = (commodity_df[col] / base_val) * 100
-
-        # Weighted index
-        total_weight = sum(weights.get(c, 0) for c in commodity_cols)
-        index_df["commodity_index"] = sum(
-            normalized[c] * weights.get(c, 0) / total_weight
-            for c in commodity_cols
-        )
-        index_df["commodity_index"] = index_df["commodity_index"].round(2)
-
-        return index_df

@@ -60,7 +60,7 @@ class CostDrivers:
 
         # Commodity-driven COGS adjustment
         # If commodity index rises 10%, material costs rise ~10% of the material portion
-        material_fraction = 0.45  # ~45% of COGS is raw materials
+        material_fraction = self.settings["financial"]["material_cogs_fraction"]
         df["commodity_adjustment"] = df["base_cogs"] * material_fraction * df["commodity_impact_pct"]
         df["total_cogs"] = df["base_cogs"] + df["commodity_adjustment"]
 
@@ -74,7 +74,7 @@ class CostDrivers:
     ) -> pd.DataFrame:
         """Apply commodity price shock to COGS."""
         df = cogs_df.copy()
-        material_fraction = 0.45
+        material_fraction = self.settings["financial"]["material_cogs_fraction"]
         additional_impact = df["base_cogs"] * material_fraction * commodity_shock_pct
         df["commodity_adjustment"] += additional_impact
         df["total_cogs"] = df["base_cogs"] + df["commodity_adjustment"]

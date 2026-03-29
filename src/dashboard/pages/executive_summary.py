@@ -16,7 +16,6 @@ import streamlit as st
 
 from src.dashboard.helpers import (
     format_currency,
-    format_pct,
     load_parquet,
     metric_card_css,
 )
@@ -76,16 +75,12 @@ def _compute_kpis(sales_df_pandas) -> dict:
         }
     except Exception as e:
         # Graceful fallback: estimate from sales volume if financial model fails
-        import polars as pl
-        if hasattr(sales_df_pandas, "select"):
-            # Polars DF
-            volume = float(sales_df_pandas.select("volume").sum().item())
-        else:
-            volume = float(sales_df_pandas["volume"].sum())
+        volume = float(sales_df_pandas["volume"].sum())
 
         from src.config import get_settings
         settings = get_settings()
-        avg_price = settings["revenue"]["avg_vehicle_price"]
+        segs = settings["vehicle_segments"]
+        avg_price = sum(s["avg_price_usd"] for s in segs) / len(segs)
         cogs_pct = settings["financial"]["base_cogs_pct"]
 
         total_revenue = volume * avg_price
@@ -187,7 +182,7 @@ def render():
                     legend=dict(orientation="h", yanchor="bottom", y=1.02),
                     margin=dict(l=40, r=20, t=30, b=40),
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
 
         with col_right:
             st.subheader("Risk Assessment")
@@ -208,7 +203,7 @@ def render():
             if risk_data:
                 import polars as pl
                 risk_table = pl.DataFrame(risk_data)
-                st.dataframe(risk_table.to_pandas(), use_container_width=True, hide_index=True)
+                st.dataframe(risk_table.to_pandas(), width='stretch', hide_index=True)
 
     # ── Alerts Section ──
     st.markdown("---")
@@ -247,14 +242,14 @@ def render():
     st.subheader("Quick Actions")
     qcol1, qcol2, qcol3, qcol4 = st.columns(4)
     with qcol1:
-        if st.button("Refresh Market Data", use_container_width=True):
+        if st.button("Refresh Market Data", width='stretch'):
             st.info("Run `python scripts/fetch_data.py` to refresh market data")
     with qcol2:
-        if st.button("Run Scenario Analysis", use_container_width=True):
+        if st.button("Run Scenario Analysis", width='stretch'):
             st.info("Navigate to Scenario Simulation page")
     with qcol3:
-        if st.button("Retrain Models", use_container_width=True):
+        if st.button("Retrain Models", width='stretch'):
             st.info("Run `python scripts/train_models.py`")
     with qcol4:
-        if st.button("Export Report", use_container_width=True):
+        if st.button("Export Report", width='stretch'):
             st.info("Report export coming soon")

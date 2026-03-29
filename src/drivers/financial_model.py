@@ -53,6 +53,34 @@ class FinancialModel:
         self.cost_drivers = CostDrivers()
         self.capital_drivers = CapitalDrivers()
 
+    def _apply_pnl_items(self, pnl: pd.DataFrame) -> pd.DataFrame:
+        """Apply warranty, depreciation, tax and net income to a gross-margin DataFrame."""
+        pnl["gross_margin"] = pnl["net_revenue"] - pnl["total_cogs"]
+        pnl["gross_margin_pct"] = np.where(
+            pnl["net_revenue"] > 0,
+            pnl["gross_margin"] / pnl["net_revenue"] * 100,
+            0,
+        )
+
+        warranty_pct = self.settings["financial"]["warranty_reserve_pct"]
+        pnl["warranty_reserve"] = pnl["net_revenue"] * warranty_pct
+
+        capex_plan = self.capital_drivers.sample_capex_plan()
+        total_annual_dep = sum(item["amount"] / item.get("useful_life_years", 7) for item in capex_plan)
+        pnl["depreciation"] = total_annual_dep / 12
+
+        pnl["operating_income"] = pnl["gross_margin"] - pnl["warranty_reserve"] - pnl["depreciation"]
+        pnl["operating_margin_pct"] = np.where(
+            pnl["net_revenue"] > 0,
+            pnl["operating_income"] / pnl["net_revenue"] * 100,
+            0,
+        )
+
+        tax_rate = self.settings["financial"]["tax_rate"]
+        pnl["tax"] = np.where(pnl["operating_income"] > 0, pnl["operating_income"] * tax_rate, 0)
+        pnl["net_income"] = pnl["operating_income"] - pnl["tax"]
+        return pnl
+
     def build_pnl(
         self,
         sales_df: pd.DataFrame,
@@ -72,35 +100,7 @@ class FinancialModel:
 
         # Step 3: Build P&L
         pnl = cogs_df.copy()
-        pnl["gross_margin"] = pnl["net_revenue"] - pnl["total_cogs"]
-        pnl["gross_margin_pct"] = np.where(
-            pnl["net_revenue"] > 0,
-            pnl["gross_margin"] / pnl["net_revenue"] * 100,
-            0,
-        )
-
-        # Warranty reserve
-        warranty_pct = self.settings["financial"]["warranty_reserve_pct"]
-        pnl["warranty_reserve"] = pnl["net_revenue"] * warranty_pct
-
-        # Depreciation (simplified — flat monthly allocation)
-        capex_plan = self.capital_drivers.sample_capex_plan()
-        total_annual_dep = sum(item["amount"] / item.get("useful_life_years", 7) for item in capex_plan)
-        monthly_dep = total_annual_dep / 12
-        pnl["depreciation"] = monthly_dep
-
-        # Operating income
-        pnl["operating_income"] = pnl["gross_margin"] - pnl["warranty_reserve"] - pnl["depreciation"]
-        pnl["operating_margin_pct"] = np.where(
-            pnl["net_revenue"] > 0,
-            pnl["operating_income"] / pnl["net_revenue"] * 100,
-            0,
-        )
-
-        # Tax & net income
-        tax_rate = self.settings["financial"]["tax_rate"]
-        pnl["tax"] = np.where(pnl["operating_income"] > 0, pnl["operating_income"] * tax_rate, 0)
-        pnl["net_income"] = pnl["operating_income"] - pnl["tax"]
+        pnl = self._apply_pnl_items(pnl)
 
         logger.info(f"P&L built: {len(pnl)} rows, total net revenue: ${pnl['net_revenue'].sum():,.0f}")
         return pnl
@@ -153,29 +153,5 @@ class FinancialModel:
 
         # Build P&L from adjusted data
         pnl = cogs_df.copy()
-        pnl["gross_margin"] = pnl["net_revenue"] - pnl["total_cogs"]
-        pnl["gross_margin_pct"] = np.where(
-            pnl["net_revenue"] > 0,
-            pnl["gross_margin"] / pnl["net_revenue"] * 100,
-            0,
-        )
-
-        warranty_pct = self.settings["financial"]["warranty_reserve_pct"]
-        pnl["warranty_reserve"] = pnl["net_revenue"] * warranty_pct
-
-        capex_plan = self.capital_drivers.sample_capex_plan()
-        total_annual_dep = sum(item["amount"] / item.get("useful_life_years", 7) for item in capex_plan)
-        pnl["depreciation"] = total_annual_dep / 12
-
-        pnl["operating_income"] = pnl["gross_margin"] - pnl["warranty_reserve"] - pnl["depreciation"]
-        pnl["operating_margin_pct"] = np.where(
-            pnl["net_revenue"] > 0,
-            pnl["operating_income"] / pnl["net_revenue"] * 100,
-            0,
-        )
-
-        tax_rate = self.settings["financial"]["tax_rate"]
-        pnl["tax"] = np.where(pnl["operating_income"] > 0, pnl["operating_income"] * tax_rate, 0)
-        pnl["net_income"] = pnl["operating_income"] - pnl["tax"]
-
+        pnl = self._apply_pnl_items(pnl)
         return pnl

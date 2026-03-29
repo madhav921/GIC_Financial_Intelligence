@@ -8,8 +8,8 @@ import polars as pl
 import streamlit as st
 from loguru import logger
 
-# Project root
-_ROOT = Path(__file__).resolve().parents[3]
+# Project root (helpers.py lives at src/dashboard/helpers.py → parents[2] = GIC/)
+_ROOT = Path(__file__).resolve().parents[2]
 
 
 @st.cache_data(ttl=3600)

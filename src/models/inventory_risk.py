@@ -15,7 +15,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 from loguru import logger
-from sklearn.linear_model import LinearRegression
+
+from src.config import get_settings
 
 
 @dataclass
@@ -101,7 +102,6 @@ class InventoryRiskModel:
     def analyze_all_segments(
         self, production_df: pd.DataFrame
     ) -> dict[str, InventoryRiskResult]:
-        from src.config import get_settings
         settings = get_settings()
         results = {}
         for seg in settings["vehicle_segments"]:

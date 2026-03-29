@@ -19,6 +19,18 @@ def add_lag_features(df: pd.DataFrame, columns: list[str], lags: list[int]) -> p
     return df
 
 
+def compute_directional_accuracy(actuals: np.ndarray, predictions: np.ndarray) -> float:
+    """
+    Return the percentage of time-steps where prediction direction matches actual direction.
+    Requires at least 2 points; returns NaN for single-point inputs.
+    """
+    if len(actuals) < 2:
+        return float("nan")
+    actual_dirs = np.sign(np.diff(actuals))
+    pred_dirs = np.sign(np.diff(predictions))
+    return float(np.mean(actual_dirs == pred_dirs) * 100)
+
+
 def add_rolling_features(
     df: pd.DataFrame, columns: list[str], windows: list[int]
 ) -> pd.DataFrame:

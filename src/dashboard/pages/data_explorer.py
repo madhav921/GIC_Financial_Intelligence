@@ -68,7 +68,7 @@ def _render_catalog():
         if records:
             st.dataframe(
                 __import__("pandas").DataFrame(records),
-                use_container_width=True,
+                width='stretch',
                 hide_index=True,
             )
 
@@ -106,12 +106,12 @@ def _render_preview():
 
             # Preview
             n_rows = st.slider("Rows to display", 5, 100, 20)
-            st.dataframe(df.head(n_rows).to_pandas(), use_container_width=True, hide_index=True)
+            st.dataframe(df.head(n_rows).to_pandas(), width='stretch', hide_index=True)
 
             # Column statistics
             if st.checkbox("Show Column Statistics"):
                 desc = df.describe().to_pandas()
-                st.dataframe(desc, use_container_width=True)
+                st.dataframe(desc, width='stretch')
 
 
 def _render_quality():
@@ -160,7 +160,7 @@ def _render_quality():
     if quality_records:
         st.dataframe(
             __import__("pandas").DataFrame(quality_records),
-            use_container_width=True,
+            width='stretch',
             hide_index=True,
         )
     else:

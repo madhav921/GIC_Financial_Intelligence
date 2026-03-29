@@ -12,9 +12,7 @@ Shows:
 from __future__ import annotations
 
 import numpy as np
-import plotly.express as px
 import plotly.graph_objects as go
-import polars as pl
 import streamlit as st
 
 from src.dashboard.helpers import format_currency, load_parquet
@@ -83,7 +81,7 @@ def _render_market_indices():
             template="plotly_dark",
             legend=dict(orientation="h", yanchor="bottom", y=1.02),
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
 
 def _render_fx_tracker():
@@ -125,7 +123,7 @@ def _render_fx_tracker():
         template="plotly_dark",
         legend=dict(orientation="h", yanchor="bottom", y=1.02),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
 
 def _render_crypto():
@@ -175,7 +173,7 @@ def _render_crypto():
             height=400,
             template="plotly_dark",
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
 
 def _render_macro():
@@ -240,4 +238,4 @@ def _render_macro():
                         margin=dict(l=40, r=20, t=40, b=30),
                         showlegend=False,
                     )
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width='stretch')

@@ -11,12 +11,14 @@ Shows:
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import polars as pl
 import streamlit as st
 
 from src.dashboard.helpers import format_currency, load_parquet
+from src.config import get_settings
 
 
 def render():
@@ -37,7 +39,7 @@ def render():
         st.error("Sales data missing 'date' column")
         return
 
-    pdf["date"] = __import__("pandas").to_datetime(pdf["date"])
+    pdf["date"] = pd.to_datetime(pdf["date"])
 
     tab1, tab2, tab3 = st.tabs(["P&L Overview", "Segment Analysis", "Cost Impact"])
 
@@ -64,7 +66,7 @@ def _render_pnl_overview(pdf):
     pdf["cogs"] = pdf["net_revenue"] * cogs_pct
     pdf["gross_margin"] = pdf["net_revenue"] - pdf["cogs"]
     pdf["warranty"] = pdf["net_revenue"] * warranty_pct
-    pdf["depreciation"] = 8_000_000  # Monthly approximation
+    pdf["depreciation"] = settings["financial"].get("monthly_depreciation_usd", 8_000_000)
     pdf["operating_income"] = pdf["gross_margin"] - pdf["warranty"] - pdf["depreciation"]
     pdf["tax"] = np.where(pdf["operating_income"] > 0, pdf["operating_income"] * tax_rate, 0)
     pdf["net_income"] = pdf["operating_income"] - pdf["tax"]
@@ -111,7 +113,7 @@ def _render_pnl_overview(pdf):
         yaxis_title="USD",
         margin=dict(l=40, r=20, t=30, b=40),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
     # Monthly revenue trend
     st.subheader("Monthly Revenue & Margin Trend")
@@ -146,7 +148,7 @@ def _render_pnl_overview(pdf):
         legend=dict(orientation="h", yanchor="bottom", y=1.02),
         margin=dict(l=40, r=20, t=30, b=40),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
 
 def _render_segment_analysis(pdf):
@@ -174,7 +176,7 @@ def _render_segment_analysis(pdf):
             color_discrete_sequence=px.colors.qualitative.Set2,
         )
         fig.update_layout(template="plotly_dark", height=350)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
     with col2:
         fig = px.bar(
@@ -184,7 +186,7 @@ def _render_segment_analysis(pdf):
             color_discrete_sequence=px.colors.qualitative.Set2,
         )
         fig.update_layout(template="plotly_dark", height=350, showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
     # Segment detail table
     st.subheader("Segment Financial Summary")
@@ -192,7 +194,7 @@ def _render_segment_analysis(pdf):
     seg_data["Volume"] = seg_data["volume"].apply(lambda x: f"{x:,}")
     seg_data["Avg Price"] = seg_data["avg_price"].apply(lambda x: format_currency(x))
     display_cols = ["segment", "Volume", "Revenue", "Avg Price"]
-    st.dataframe(seg_data[display_cols], use_container_width=True, hide_index=True)
+    st.dataframe(seg_data[display_cols], width='stretch', hide_index=True)
 
 
 def _render_cost_impact(pdf, commodity_df):
@@ -204,12 +206,8 @@ def _render_cost_impact(pdf, commodity_df):
         st.warning("No commodity data for cost impact analysis")
         return
 
-    from src.config import get_settings
     settings = get_settings()
-    material_fraction = 0.45  # 45% of COGS is raw materials
-
-    # Show BOM impact
-    bom_weights = {c["name"]: c["bom_weight"] for c in settings["commodities"]}
+    material_fraction = settings["financial"]["material_cogs_fraction"]
 
     # Simulate COGS sensitivity
     shock_range = list(range(-30, 35, 5))
@@ -241,4 +239,4 @@ def _render_cost_impact(pdf, commodity_df):
         height=400,
         template="plotly_dark",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')

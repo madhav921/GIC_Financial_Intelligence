@@ -22,11 +22,19 @@ async def forecast_commodity(request: CommodityForecastRequest):
         commodity_df = loader.load_commodity_prices()
         macro_df = loader.load_macro_indicators()
 
+        if request.commodity not in commodity_df.columns:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Commodity '{request.commodity}' not found. "
+                       f"Available: {[c for c in commodity_df.columns if c != 'date']}",
+            )
+
         model = CommodityForecastModel()
         model.settings["forecast"]["horizon_months"] = request.horizon_months
 
-        # Train SARIMAX
-        metrics = model.train_sarimax(request.commodity, commodity_df[request.commodity])
+        # Set DatetimeIndex so SARIMAX gets correct seasonal ordering
+        price_series = commodity_df.set_index("date")[request.commodity]
+        metrics = model.train_sarimax(request.commodity, price_series)
         result = model.forecast_sarimax(request.commodity)
 
         # Audit log

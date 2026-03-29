@@ -88,7 +88,7 @@ def _render_price_charts(df: pl.DataFrame, date_col: str, value_cols: list[str])
                 mode="lines", name="MA(20)",
                 line=dict(color="#ff9500", width=1, dash="dash"),
             ))
-            if ma50:
+            if ma50 is not None:
                 fig.add_trace(go.Scatter(
                     x=dates, y=ma50,
                     mode="lines", name="MA(50)",
@@ -116,7 +116,7 @@ def _render_price_charts(df: pl.DataFrame, date_col: str, value_cols: list[str])
             template="plotly_dark",
             margin=dict(l=40, r=20, t=50, b=40),
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
     # Stats row
     if len(prices) > 0:
@@ -164,7 +164,7 @@ def _render_correlation(df: pl.DataFrame, date_col: str, value_cols: list[str]):
         template="plotly_dark",
         title="Return Correlation Heatmap",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
     # Key insights
     st.markdown("**Key Correlations:**")
@@ -222,7 +222,7 @@ def _render_performance(df: pl.DataFrame, date_col: str, value_cols: list[str]):
 
     if records:
         perf_df = pl.DataFrame(records)
-        st.dataframe(perf_df.to_pandas(), use_container_width=True, hide_index=True)
+        st.dataframe(perf_df.to_pandas(), width='stretch', hide_index=True)
 
     # Drawdown chart
     st.subheader("Drawdown Analysis")
@@ -246,7 +246,7 @@ def _render_performance(df: pl.DataFrame, date_col: str, value_cols: list[str]):
             template="plotly_dark",
             margin=dict(l=40, r=20, t=30, b=40),
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
 
 def _render_commodity_index(df: pl.DataFrame, date_col: str, value_cols: list[str]):
@@ -256,7 +256,16 @@ def _render_commodity_index(df: pl.DataFrame, date_col: str, value_cols: list[st
 
     from src.config import get_settings
     settings = get_settings()
-    weights = {c["name"]: c["bom_weight"] for c in settings["commodities"]}
+    # Build weight lookup keyed by both commodity name AND yfinance ticker
+    # so the index works whether we loaded real market data (tickers) or synthetic data (names)
+    weights = {}
+    display_name = {}
+    for c in settings["commodities"]:
+        weights[c["name"]] = c["bom_weight"]
+        display_name[c["name"]] = c["name"]
+        if "yfinance_ticker" in c:
+            weights[c["yfinance_ticker"]] = c["bom_weight"]
+            display_name[c["yfinance_ticker"]] = c["name"]
 
     # Build index
     pdf = df.to_pandas()
@@ -295,13 +304,13 @@ def _render_commodity_index(df: pl.DataFrame, date_col: str, value_cols: list[st
         height=400,
         template="plotly_dark",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
     # Weight breakdown
     st.subheader("BOM Weight Allocation")
-    weight_data = [{"Commodity": c, "BOM Weight": f"{weights[c]:.0%}"}
+    weight_data = [{"Commodity": display_name.get(c, c), "BOM Weight": f"{weights[c]:.0%}"}
                    for c in available_commodities]
-    st.dataframe(pl.DataFrame(weight_data).to_pandas(), use_container_width=True, hide_index=True)
+    st.dataframe(pl.DataFrame(weight_data).to_pandas(), width='stretch', hide_index=True)
 
 
 def _moving_average(values: list[float], window: int) -> list[float | None]:

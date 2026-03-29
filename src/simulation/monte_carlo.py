@@ -141,15 +141,14 @@ class MonteCarloEngine:
         revenue_dist = base_revenue * (1 + demand_shocks)
 
         # COGS scales with demand + commodity
-        material_fraction = 0.45
+        material_fraction = self.settings["financial"]["material_cogs_fraction"]
         cogs_demand_effect = base_cogs * (1 + demand_shocks)
         cogs_commodity_effect = base_cogs * material_fraction * commodity_shocks
         cogs_dist = cogs_demand_effect + cogs_commodity_effect
 
         margin_dist = revenue_dist - cogs_dist
 
-        # Operating income (subtract fixed costs)
-        fixed_costs = base_revenue - base_margin - (base_margin - base_oi)  # warranty + dep
+        # Operating income (subtract warranty + depreciation)
         other_costs = base_margin - base_oi  # warranty + depreciation
         oi_dist = margin_dist - other_costs
 

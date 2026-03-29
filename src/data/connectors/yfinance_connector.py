@@ -53,53 +53,58 @@ CRYPTO_TICKERS = {
 }
 
 
-def fetch_commodity_prices(
-    period: str = "7y",
-    interval: str = "1mo",
+def _fetch_yfinance(
+    ticker_map: dict[str, str],
+    period: str,
+    interval: str,
+    label: str,
 ) -> pl.DataFrame:
     """
-    Fetch historical commodity prices from Yahoo Finance.
-
-    Args:
-        period: yfinance period string (1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max)
-        interval: Data granularity (1m, 5m, 15m, 1h, 1d, 1wk, 1mo)
-
-    Returns:
-        Polars DataFrame with date + commodity columns
+    Shared helper: download Close prices for a ticker→name map via yfinance.
+    Renames columns from ticker symbols to human-readable names and forward-fills.
     """
-    logger.info(f"Fetching commodity prices from Yahoo Finance (period={period}, interval={interval})")
-    all_tickers = list(COMMODITY_TICKERS.values())
-    ticker_to_name = {v: k for k, v in COMMODITY_TICKERS.items()}
+    import pandas as pd
+
+    all_tickers = list(ticker_map.values())
+    ticker_to_name = {v: k for k, v in ticker_map.items()}
 
     try:
         data = yf.download(all_tickers, period=period, interval=interval, progress=False)
         if data.empty:
-            logger.warning("No data returned from Yahoo Finance")
+            logger.warning(f"No data returned from Yahoo Finance for {label}")
             return pl.DataFrame()
 
-        # Extract adjusted close prices
-        if isinstance(data.columns, __import__("pandas").MultiIndex):
+        if isinstance(data.columns, pd.MultiIndex):
             close_data = data["Close"]
         else:
             close_data = data[["Close"]]
 
-        # Convert to Polars
         pdf = close_data.reset_index()
         pdf.columns = ["date"] + [ticker_to_name.get(c, c) for c in close_data.columns]
         df = pl.from_pandas(pdf)
 
-        # Clean: forward-fill and drop nulls at start
-        commodity_cols = [c for c in df.columns if c != "date"]
-        df = df.with_columns([
-            pl.col(c).forward_fill().alias(c) for c in commodity_cols
-        ]).drop_nulls(subset=commodity_cols[:1])
-
-        logger.info(f"Fetched {df.height} rows × {len(commodity_cols)} commodities from Yahoo Finance")
+        value_cols = [c for c in df.columns if c != "date"]
+        df = df.with_columns([pl.col(c).forward_fill().alias(c) for c in value_cols])
+        logger.info(f"Fetched {df.height} rows of {label} from Yahoo Finance")
         return df
 
     except Exception as e:
-        logger.error(f"Yahoo Finance fetch failed: {e}")
+        logger.error(f"{label} fetch failed: {e}")
         return pl.DataFrame()
+
+
+def fetch_commodity_prices(
+    period: str = "7y",
+    interval: str = "1mo",
+) -> pl.DataFrame:
+    """Fetch historical commodity prices from Yahoo Finance."""
+    logger.info(f"Fetching commodity prices from Yahoo Finance (period={period}, interval={interval})")
+    df = _fetch_yfinance(COMMODITY_TICKERS, period, interval, "commodity prices")
+    # Drop rows where all commodity columns are null (common at start)
+    commodity_cols = [c for c in df.columns if c != "date"]
+    if commodity_cols:
+        df = df.drop_nulls(subset=commodity_cols[:1])
+    return df
 
 
 def fetch_market_data(
@@ -107,32 +112,7 @@ def fetch_market_data(
     interval: str = "1mo",
 ) -> pl.DataFrame:
     """Fetch broader market indices (S&P 500, VIX, Oil, Gold, Treasury yields)."""
-    logger.info("Fetching market index data from Yahoo Finance")
-    all_tickers = list(MARKET_TICKERS.values())
-    ticker_to_name = {v: k for k, v in MARKET_TICKERS.items()}
-
-    try:
-        data = yf.download(all_tickers, period=period, interval=interval, progress=False)
-        if data.empty:
-            return pl.DataFrame()
-
-        if isinstance(data.columns, __import__("pandas").MultiIndex):
-            close_data = data["Close"]
-        else:
-            close_data = data[["Close"]]
-
-        pdf = close_data.reset_index()
-        pdf.columns = ["date"] + [ticker_to_name.get(c, c) for c in close_data.columns]
-        df = pl.from_pandas(pdf)
-
-        cols = [c for c in df.columns if c != "date"]
-        df = df.with_columns([pl.col(c).forward_fill().alias(c) for c in cols])
-        logger.info(f"Fetched {df.height} rows of market data")
-        return df
-
-    except Exception as e:
-        logger.error(f"Market data fetch failed: {e}")
-        return pl.DataFrame()
+    return _fetch_yfinance(MARKET_TICKERS, period, interval, "market indices")
 
 
 def fetch_fx_rates(
@@ -140,32 +120,7 @@ def fetch_fx_rates(
     interval: str = "1mo",
 ) -> pl.DataFrame:
     """Fetch historical FX rates."""
-    logger.info("Fetching FX rates from Yahoo Finance")
-    all_tickers = list(FX_TICKERS.values())
-    ticker_to_name = {v: k for k, v in FX_TICKERS.items()}
-
-    try:
-        data = yf.download(all_tickers, period=period, interval=interval, progress=False)
-        if data.empty:
-            return pl.DataFrame()
-
-        if isinstance(data.columns, __import__("pandas").MultiIndex):
-            close_data = data["Close"]
-        else:
-            close_data = data[["Close"]]
-
-        pdf = close_data.reset_index()
-        pdf.columns = ["date"] + [ticker_to_name.get(c, c) for c in close_data.columns]
-        df = pl.from_pandas(pdf)
-
-        cols = [c for c in df.columns if c != "date"]
-        df = df.with_columns([pl.col(c).forward_fill().alias(c) for c in cols])
-        logger.info(f"Fetched {df.height} rows of FX data")
-        return df
-
-    except Exception as e:
-        logger.error(f"FX data fetch failed: {e}")
-        return pl.DataFrame()
+    return _fetch_yfinance(FX_TICKERS, period, interval, "FX rates")
 
 
 def fetch_single_ticker(

@@ -39,7 +39,7 @@ from sklearn.metrics import (
 from xgboost import XGBRegressor
 
 from src.config import get_project_root, get_settings
-from src.data.feature_engineering import prepare_commodity_features
+from src.data.feature_engineering import compute_directional_accuracy, prepare_commodity_features
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -195,9 +195,7 @@ class WalkForwardBacktester:
 
         # Directional accuracy: does prediction go the same direction as actual?
         if len(actuals) > 1:
-            actual_dirs = np.sign(np.diff(actuals))
-            pred_dirs = np.sign(np.diff(predictions))
-            dir_acc = float(np.mean(actual_dirs == pred_dirs) * 100)
+            dir_acc = compute_directional_accuracy(actuals, predictions)
         else:
             dir_acc = float("nan")
 
@@ -299,7 +297,8 @@ class WalkForwardBacktester:
                 mean_hit_rate_10pct=float("nan"), mean_bias=float("nan"),
             )
 
-        folds = self._get_fold_indices(len(X_all))
+        # Convert numpy datetime64 to date strings
+        _fmt = lambda d: str(pd.Timestamp(d).date())  # noqa: E731
         fold_results = []
 
         for fold_id, (train_idx, test_idx) in enumerate(folds):
@@ -315,8 +314,6 @@ class WalkForwardBacktester:
             metrics = self._compute_fold_metrics(y_test, preds)
 
             train_dates = dates_all[list(train_idx)]
-            # Convert numpy datetime64 to date strings
-            _fmt = lambda d: str(pd.Timestamp(d).date())
             fold_result = FoldResult(
                 commodity=commodity,
                 model_type=model_type,

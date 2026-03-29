@@ -15,7 +15,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from src.dashboard.helpers import format_pct, load_parquet
+from src.dashboard.helpers import load_parquet
 
 
 def render():
@@ -73,7 +73,7 @@ def _render_run_backtest():
             help="Limit number of folds to speed up testing. 0 = run all available."
         )
 
-        run_btn = st.button("Run Backtest", type="primary", use_container_width=True)
+        run_btn = st.button("Run Backtest", type="primary", width='stretch')
 
     with col2:
         if run_btn:
@@ -152,7 +152,7 @@ def _execute_backtest(
             import polars as pl
             st.dataframe(
                 pl.DataFrame(rows).to_pandas(),
-                use_container_width=True,
+                width='stretch',
                 hide_index=True,
             )
 
@@ -206,7 +206,7 @@ def _render_results_summary():
         color_discrete_sequence=["#00d4aa", "#ff6b6b"],
     )
     fig_mape.update_layout(height=350)
-    st.plotly_chart(fig_mape, use_container_width=True)
+    st.plotly_chart(fig_mape, width='stretch')
 
     col_left, col_right = st.columns(2)
 
@@ -227,7 +227,7 @@ def _render_results_summary():
         fig_dir.add_hline(y=50, line_dash="dash", line_color="gray",
                           annotation_text="50% (random baseline)")
         fig_dir.update_layout(height=300)
-        st.plotly_chart(fig_dir, use_container_width=True)
+        st.plotly_chart(fig_dir, width='stretch')
 
     with col_right:
         # ── Hit Rate ─────────────────────────────────────────────────────────
@@ -244,7 +244,7 @@ def _render_results_summary():
             color_discrete_sequence=["#30d158", "#ff6b6b"],
         )
         fig_hit.update_layout(height=300)
-        st.plotly_chart(fig_hit, use_container_width=True)
+        st.plotly_chart(fig_hit, width='stretch')
 
     # ── Detailed Table ────────────────────────────────────────────────────────
     st.markdown("#### Full Results Table")
@@ -258,7 +258,7 @@ def _render_results_summary():
     available_cols = [c for c in display_cols if c in summary_pd.columns]
     st.dataframe(
         summary_pd[available_cols].round(2),
-        use_container_width=True,
+        width='stretch',
         hide_index=True,
     )
 
@@ -281,7 +281,7 @@ def _render_results_summary():
         )
         fig_bias.add_hline(y=0, line_color="white", line_dash="dash")
         fig_bias.update_layout(height=300)
-        st.plotly_chart(fig_bias, use_container_width=True)
+        st.plotly_chart(fig_bias, width='stretch')
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -347,7 +347,7 @@ def _render_fold_detail():
         height=400,
         template="plotly_dark",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
     col_a, col_b = st.columns(2)
 
@@ -372,7 +372,7 @@ def _render_fold_detail():
             height=300,
             template="plotly_dark",
         )
-        st.plotly_chart(fig_err, use_container_width=True)
+        st.plotly_chart(fig_err, width='stretch')
 
     with col_b:
         # ── Error distribution ────────────────────────────────────────────
@@ -387,7 +387,7 @@ def _render_fold_detail():
         )
         fig_hist.add_vline(x=0, line_color="white", line_dash="dash")
         fig_hist.update_layout(height=300)
-        st.plotly_chart(fig_hist, use_container_width=True)
+        st.plotly_chart(fig_hist, width='stretch')
 
     # ── Fold-level Metrics Table ──────────────────────────────────────────────
     st.markdown("#### Fold-Level Metrics")
@@ -399,4 +399,4 @@ def _render_fold_detail():
     ).reset_index()
     fold_agg.columns = ["Fold", "Obs", "MAE", "MAPE (%)", "Bias"]
     fold_agg = fold_agg.round(2)
-    st.dataframe(fold_agg, use_container_width=True, hide_index=True)
+    st.dataframe(fold_agg, width='stretch', hide_index=True)
