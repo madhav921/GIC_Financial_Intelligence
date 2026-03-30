@@ -22,7 +22,7 @@
 │  │  Finance     │  │  (Binance)   │  │  (Macro)     │  │  Generator         │  │
 │  │              │  │              │  │              │  │                    │  │
 │  │ • Commodities│  │ • BTC/ETH    │  │ • Fed Rate   │  │ • O-U Process      │  │
-│  │ • FX Rates   │  │ • SOL/XRP    │  │ • CPI/PPI    │  │ • 8 Commodities    │  │
+│  │ • FX Rates   │  │ • SOL/XRP    │  │ • CPI/PPI    │  │ • 3 Commodities    │  │
 │  │ • S&P/VIX    │  │ • BNB/AVAX   │  │ • GDP/Unemp  │  │ • 4 Segments       │  │
 │  │ • Oil/Gold   │  │ • 6 Pairs    │  │ • Sentiment  │  │ • BOM/Inventory    │  │
 │  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └─────────┬──────────┘  │
@@ -282,9 +282,15 @@ python scripts/fetch_data.py
 ```
 
 This pulls live data from:
-- **Yahoo Finance**: 8 commodity proxies, 6 market indices, 4 FX pairs
+- **Yahoo Finance**: 9 commodity prices (futures + ETF proxies), 6 market indices, 4 FX pairs, macro proxies (DXY, Oil, VIX, Treasury)
 - **CCXT/Binance**: 6 crypto assets (BTC, ETH, SOL, XRP, BNB, AVAX)
-- **FRED**: 11 macro indicators (requires API key in `.env`)
+- **FRED**: 11 macro indicators (requires free API key in `.env`)
+- **Synthetic (O-U process)**: 3 commodities without exchange-traded instruments (Rhodium, Polypropylene, ABS Resin)
+
+Output:
+- `data/raw/commodity_prices.csv` — 12 commodities (9 real + 3 synthetic), pipeline-ready
+- `data/raw/macro_indicators.csv` — 12 macro indicators (real + synthetic), pipeline-ready
+- `data/external/*.parquet` — all market data for dashboard
 
 ### 5. Train Models
 
@@ -305,7 +311,7 @@ python scripts/run_commodity_pipeline.py
 ```
 
 This runs the full 8-stage commodity pipeline:
-1. Data generation (12 commodities + macro indicators)
+1. **Data acquisition** — uses real-world data if available (from `fetch_data.py`), falls back to synthetic
 2. Model training (SARIMAX + XGBoost per commodity with cross-validation)
 3. Forecast generation (all 4 methods: SARIMAX, XGBoost, Futures Curve, Scenario)
 4. Multi-method comparison table
@@ -381,18 +387,59 @@ curl -X POST http://localhost:8000/simulation/scenario \
 
 ## Data Sources
 
-### Real-Time (Free, No API Key)
+### Commodity Prices — Real-World vs Synthetic
 
-| Source | Data | Refresh |
-|--------|------|---------|
-| **Yahoo Finance** | Commodity ETFs (LIT, REMX, SLX, HG=F, PPLT), Market indices (S&P 500, VIX, DJI), FX (EUR, GBP, JPY, CNY), Crude oil, Gold | On-demand |
-| **CCXT / Binance** | BTC, ETH, SOL, XRP, BNB, AVAX — OHLCV candles | On-demand |
+| Commodity | Source | Ticker | Type | Unit Conversion | Notes |
+|-----------|--------|--------|------|-----------------|-------|
+| **Steel** | Yahoo Finance | `SLX` | ETF proxy | ×7.5 → USD/tonne | VanEck Steel ETF; tracks steel equities, not LME directly |
+| **Aluminum** | Yahoo Finance | `AA` | Equity proxy | ×60 → USD/tonne | Alcoa Corp; largest US aluminum producer |
+| **Copper** | Yahoo Finance | `HG=F` | Direct futures | ×2204.62 (lb→tonne) | CME COMEX Copper; direct commodity futures |
+| **Platinum** | Yahoo Finance | `PL=F` | Direct futures | ×1.0 (USD/oz) | NYMEX Platinum; direct commodity futures |
+| **Palladium** | Yahoo Finance | `PA=F` | Direct futures | ×1.0 (USD/oz) | NYMEX Palladium; direct commodity futures |
+| **Lithium** | Yahoo Finance | `LIT` | ETF proxy | ×0.25 → USD/kg | Global X Lithium & Battery Tech ETF |
+| **Natural Gas** | Yahoo Finance | `NG=F` | Direct futures | ×10 → p/therm equiv | NYMEX Henry Hub; converted to therm-equivalent |
+| **Nickel** | Yahoo Finance | `VALE` | Equity proxy | ×750 → USD/tonne | Vale SA; major global nickel/iron ore producer |
+| **Cobalt** | Yahoo Finance | `GLNCY` | Equity proxy | ×1600 → USD/tonne | Glencore; world's largest cobalt producer |
+| **Rhodium** | **Synthetic** | — | O-U process | — | No exchange-traded instrument. LME/LPPM quotes only via paid terminal. Correlate with PGM basket. |
+| **Polypropylene** | **Synthetic** | — | O-U process | — | No exchange-traded instrument. ICIS/Platts subscription required. Correlated to oil/naphtha. |
+| **ABS Resin** | **Synthetic** | — | O-U process | — | No exchange-traded instrument. ICIS subscription required. Correlated to oil/naphtha. |
 
-### Free with API Key
+**How to replace synthetic data with real data:**
+- **Rhodium**: Subscribe to Johnson Matthey PGM Price Bulletin or LPPM, add a custom connector that reads from their API or CSV export.
+- **Polypropylene / ABS Resin**: Subscribe to ICIS, Platts, or ChemOrbis petrochemical price feeds. Add a connector that ingests their price data into `data/raw/`.
+- **Nickel / Cobalt (better proxy)**: Replace equity proxies with LME API (paid) for direct LME Nickel 3M and LME Cobalt prices.
 
-| Source | Data | How to Get |
-|--------|------|------------|
-| **FRED** | Fed Funds Rate, Treasury yields, CPI, PPI, GDP, Unemployment, Consumer Sentiment, WTI Oil, Gold, FX | [fred.stlouisfed.org/docs/api/api_key.html](https://fred.stlouisfed.org/docs/api/api_key.html) |
+### Macro Indicators
+
+| Indicator | Source | Series/Ticker | Real? |
+|-----------|--------|---------------|-------|
+| Oil Price (USD) | Yahoo Finance | `CL=F` | Yes |
+| DXY Index | Yahoo Finance | `DX-Y.NYB` | Yes |
+| USD/GBP | Yahoo Finance | `GBPUSD=X` | Yes |
+| USD/EUR | Yahoo Finance | `EURUSD=X` | Yes |
+| Interest Rate (%) | FRED | `FEDFUNDS` | Yes (with API key) |
+| CPI Index | FRED | `CPIAUCSL` | Yes (with API key) |
+| PPI (US) | FRED | `PPIACO` | Yes (with API key) |
+| Manufacturing PMI | FRED (proxy) | `INDPRO` | Yes (Industrial Production as proxy) |
+| GDP Growth (%) | Synthetic | — | No (FRED GDP is quarterly, model expects monthly) |
+| China PPI YoY | Synthetic | — | No (not freely available) |
+| Baltic Dry Index | Synthetic | — | No (not freely available via yfinance/FRED) |
+| EV Sales Growth | Synthetic | — | No (IEA/Bloomberg NEF data requires subscription) |
+
+**How to replace remaining synthetic macro data:**
+- **GDP Growth**: Use FRED `GDP` series (quarterly) with interpolation, or use ISM PMI as a proxy.
+- **China PPI**: National Bureau of Statistics of China (NBS) or CEIC database.
+- **Baltic Dry Index**: Available at freightos.com or via paid market data terminals.
+- **EV Sales Growth**: IEA Global EV Outlook, Bloomberg NEF, or CleanTechnica open data.
+
+### Market & Other Data
+
+| Source | Data | API Key? |
+|--------|------|----------|
+| **Yahoo Finance** | S&P 500, VIX, Dow Jones, Oil, Gold, 10Y Treasury | No |
+| **Yahoo Finance** | USD/GBP, USD/EUR, USD/JPY, USD/CNY | No |
+| **CCXT / Binance** | BTC, ETH, SOL, XRP, BNB, AVAX — OHLCV candles | No |
+| **FRED** | 11 macro series (rates, inflation, GDP, sentiment) | Free key |
 
 ### Placeholder (Enterprise)
 

@@ -43,9 +43,17 @@ def main():
 
     st.sidebar.markdown("---")
     st.sidebar.markdown(
-        "**v0.3.0** | Real-Time Data + Backtesting\n\n"
-        "Sources: Yahoo Finance, CCXT, FRED, Commodities-API"
+        "**v0.4.0** | Real-World Data Pipeline\n\n"
+        "Sources: Yahoo Finance, FRED, CCXT (Binance)"
     )
+
+    # Show data source status
+    from src.dashboard.helpers import detect_data_source
+    src = detect_data_source("commodity_prices")
+    if src == "real":
+        st.sidebar.success("Data: Real-world (Yahoo Finance)")
+    else:
+        st.sidebar.warning("Data: Synthetic — run `fetch_data.py`")
 
     if page == "Executive Summary":
         from src.dashboard.pages import executive_summary

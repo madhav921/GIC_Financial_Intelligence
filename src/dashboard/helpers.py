@@ -14,17 +14,30 @@ _ROOT = Path(__file__).resolve().parents[2]
 
 @st.cache_data(ttl=3600)
 def load_parquet(name: str) -> pl.DataFrame | None:
-    """Load a Parquet or CSV dataset with caching."""
-    for parent_dir in ["data/external", "data/parquet", "data/synthetic"]:
+    """Load a Parquet or CSV dataset with caching.
+
+    Priority: data/external → data/parquet → data/raw (CSV) → data/synthetic (CSV).
+    """
+    for parent_dir in ["data/external", "data/parquet"]:
         parquet_path = _ROOT / parent_dir / f"{name}.parquet"
         if parquet_path.exists():
             return pl.read_parquet(parquet_path)
 
-    csv_path = _ROOT / "data" / "synthetic" / f"{name}.csv"
-    if csv_path.exists():
-        return pl.read_csv(csv_path, try_parse_dates=True)
+    for csv_dir in ["data/raw", "data/synthetic"]:
+        csv_path = _ROOT / csv_dir / f"{name}.csv"
+        if csv_path.exists():
+            return pl.read_csv(csv_path, try_parse_dates=True)
 
     return None
+
+
+def detect_data_source(name: str) -> str:
+    """Return 'real' or 'synthetic' based on which directory contains the data."""
+    for d in ["data/external", "data/raw"]:
+        for ext in (".parquet", ".csv"):
+            if (_ROOT / d / f"{name}{ext}").exists():
+                return "real"
+    return "synthetic"
 
 
 def format_currency(value: float, prefix: str = "$") -> str:

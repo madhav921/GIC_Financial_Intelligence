@@ -1,6 +1,6 @@
 """
 Data loader: unified interface for loading data from various sources.
-Falls back to synthetic data for local development.
+Priority: data/raw/ (real-world) → data/synthetic/ (fallback).
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from src.config import get_project_root, get_settings
 
 
 class DataLoader:
-    """Load data from synthetic files or external sources."""
+    """Load data from raw (real-world) or synthetic files."""
 
     def __init__(self):
         self.settings = get_settings()
@@ -23,20 +23,28 @@ class DataLoader:
         self._raw_dir = self.root / "data" / "raw"
         self._processed_dir = self.root / "data" / "processed"
         self._processed_dir.mkdir(parents=True, exist_ok=True)
+        self._source_map: dict[str, str] = {}
 
     def _resolve_path(self, name: str) -> Path:
         """Check raw first, fall back to synthetic."""
         raw_path = self._raw_dir / f"{name}.csv"
         synth_path = self._synthetic_dir / f"{name}.csv"
         if raw_path.exists():
-            logger.info(f"Loading from raw: {raw_path}")
+            self._source_map[name] = "real"
+            logger.info(f"Loading from raw (real-world): {raw_path}")
             return raw_path
         if synth_path.exists():
+            self._source_map[name] = "synthetic"
             logger.info(f"Loading from synthetic: {synth_path}")
             return synth_path
         raise FileNotFoundError(
-            f"Dataset '{name}' not found. Run `python scripts/generate_data.py` first."
+            f"Dataset '{name}' not found. "
+            f"Run `python scripts/fetch_data.py` (real) or `python scripts/generate_data.py` (synthetic)."
         )
+
+    def get_data_source(self, name: str) -> str:
+        """Return 'real' or 'synthetic' for a previously loaded dataset."""
+        return self._source_map.get(name, "unknown")
 
     def load_commodity_prices(self) -> pd.DataFrame:
         path = self._resolve_path("commodity_prices")

@@ -42,9 +42,9 @@ def _render_catalog():
 
     sources = {
         "External (Real-World)": _ROOT / "data" / "external",
+        "Raw (Real-World CSV)": _ROOT / "data" / "raw",
         "Parquet (Cached)": _ROOT / "data" / "parquet",
         "Synthetic (Generated)": _ROOT / "data" / "synthetic",
-        "Raw (Uploaded)": _ROOT / "data" / "raw",
     }
 
     for label, path in sources.items():
@@ -79,7 +79,7 @@ def _render_preview():
 
     # Collect all available datasets
     all_datasets = []
-    for d in ["data/external", "data/parquet", "data/synthetic"]:
+    for d in ["data/external", "data/raw", "data/parquet", "data/synthetic"]:
         dir_path = _ROOT / d
         if dir_path.exists():
             for f in dir_path.glob("*.*"):
@@ -119,7 +119,7 @@ def _render_quality():
     st.subheader("Data Quality Report")
 
     all_datasets = []
-    for d in ["data/external", "data/parquet", "data/synthetic"]:
+    for d in ["data/external", "data/raw", "data/parquet", "data/synthetic"]:
         dir_path = _ROOT / d
         if dir_path.exists():
             for f in dir_path.glob("*.*"):

@@ -35,6 +35,14 @@ def render():
         st.error("No commodity data available. Run `python scripts/fetch_data.py` or `python scripts/generate_data.py`.")
         return
 
+    # Data source indicator
+    from src.dashboard.helpers import detect_data_source
+    src = detect_data_source("commodity_prices")
+    if src == "real":
+        st.success("Data Source: **Yahoo Finance** (real-world prices, some ETF proxies)")
+    else:
+        st.info("Data Source: **Synthetic** — run `python scripts/fetch_data.py` for real data")
+
     date_col = "date" if "date" in prices_df.columns else "Date"
     value_cols = [c for c in prices_df.columns if c not in ("date", "Date")]
 

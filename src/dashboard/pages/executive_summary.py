@@ -161,7 +161,7 @@ def render():
                 # Normalize to base 100
                 first_valid_idx = 0
                 fig = go.Figure()
-                for col in value_cols[:8]:
+                for col in value_cols[:12]:
                     series = prices_df[col].to_list()
                     base = series[first_valid_idx] if series[first_valid_idx] else 1
                     normalized = [((v / base) * 100 if v and base else None) for v in series]
@@ -228,10 +228,18 @@ def render():
         )
 
     with alert_col2:
+        # Detect data source for commodity prices
+        from src.dashboard.helpers import detect_data_source
+        src_label = detect_data_source("commodity_prices")
+        src_badge = (
+            '<span style="color:#00d4aa">REAL DATA</span>'
+            if src_label == "real"
+            else '<span style="color:#ff9500">SYNTHETIC</span>'
+        )
         st.markdown(
             '<div class="alert-info">'
-            "<strong>Model Status</strong><br>"
-            "SARIMAX: 8 models trained | XGBoost: 8 models | "
+            f"<strong>Model Status</strong> ({src_badge})<br>"
+            "SARIMAX: 12 models trained | XGBoost: 12 models | "
             "Demand: 4 segments | Elasticity: 4 fitted"
             "</div>",
             unsafe_allow_html=True,

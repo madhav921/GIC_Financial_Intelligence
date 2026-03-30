@@ -61,17 +61,40 @@ def main():
     print("  3-18 month horizon | Bear/Base/Bull scenarios")
 
     # ═══════════════════════════════════════════════════════════════
-    # STAGE 1: DATA GENERATION
+    # STAGE 1: DATA ACQUISITION (real-world → synthetic fallback)
     # ═══════════════════════════════════════════════════════════════
-    _print_header("STAGE 1: Data Generation")
-    datasets = generate_all_synthetic_data(seed=42)
-    for name, df in datasets.items():
-        audit.log_data_ingestion("synthetic", name, len(df))
-        print(f"    {name:25s}: {df.shape}")
+    _print_header("STAGE 1: Data Acquisition")
+
+    # Try real-world data first
+    raw_dir = Path(__file__).resolve().parents[1] / "data" / "raw"
+    has_real_data = (raw_dir / "commodity_prices.csv").exists()
+
+    if not has_real_data:
+        print("  No real-world data found. Attempting to fetch...")
+        try:
+            from scripts.fetch_data import fetch_all_data
+            source_report = fetch_all_data()
+            has_real_data = (raw_dir / "commodity_prices.csv").exists()
+            if has_real_data:
+                print("  Real-world data fetched successfully!")
+        except Exception as e:
+            print(f"  Real data fetch failed ({e}). Falling back to synthetic.")
+
+    if not has_real_data:
+        print("  Using synthetic data (run `python scripts/fetch_data.py` to get real data).")
+        datasets = generate_all_synthetic_data(seed=42)
+        for name, df in datasets.items():
+            audit.log_data_ingestion("synthetic", name, len(df))
+            print(f"    {name:25s}: {df.shape}")
+    else:
+        print("  Using real-world data from data/raw/")
+        audit.log_data_ingestion("real-world", "commodity_prices", 0)
 
     loader = DataLoader()
     commodity_df = loader.load_commodity_prices()
     macro_df = loader.load_macro_indicators()
+    data_source = loader.get_data_source("commodity_prices")
+    print(f"\n  Data source: {data_source.upper()}")
 
     commodity_cols = [c for c in commodity_df.columns if c != "date"]
     print(f"\n  Commodities loaded: {len(commodity_cols)}")
