@@ -7,9 +7,11 @@ __pycache__/
 dist/
 build/
 *.egg
+.pytest_cache/
 
 # Virtual environments
 venv/
+
 .venv/
 env/
 
@@ -46,6 +48,9 @@ logs/audit/*.jsonl
 # Streamlit
 .streamlit/
 
+docs/
 # OS
 .DS_Store
 Thumbs.db
+
+docs/archive/
