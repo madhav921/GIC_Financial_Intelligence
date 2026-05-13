@@ -56,3 +56,42 @@ class ElasticityResponse(BaseModel):
     incentive_elasticity: float
     commodity_cross_elasticity: float
     r_squared: float
+
+
+class ShockRequest(BaseModel):
+    """Request body for POST /pnl/shock."""
+    shocks: dict[str, float] = Field(
+        ...,
+        description="Commodity name → fractional shock (e.g. {\"Lithium\": 0.20 means +20%})",
+    )
+    base_revenue: float | None = Field(
+        None,
+        description="Override base annual revenue (USD). Defaults to latest P&L sum.",
+    )
+
+
+class ShockWaterfallItem(BaseModel):
+    commodity: str
+    shock_pct: float
+    cogs_impact: float
+    ebit_impact: float
+    margin_impact_bps: float
+    pct_of_base_ebit: float
+
+
+class ShockResponse(BaseModel):
+    waterfall: list[ShockWaterfallItem]
+    total_ebit_impact: float
+    total_cogs_impact: float
+    total_margin_impact_bps: float
+    base_revenue: float
+    hedge_recommendations: list[dict]
+
+
+class RegimeInfo(BaseModel):
+    commodity: str
+    regime: str
+    hurst: float
+    rolling_vol_pct: float
+    ensemble_weights: dict[str, float]
+    confidence: str

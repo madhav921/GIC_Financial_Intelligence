@@ -33,6 +33,7 @@ from xgboost import XGBRegressor
 from src.config import get_project_root, get_settings
 from src.data.feature_engineering import compute_directional_accuracy, prepare_commodity_features
 from src.models.futures_curve import FuturesCurveExtractor
+from src.models.regime_detector import RegimeDetector
 from src.models.commodity_scenarios import (
     CommodityScenarioEngine,
     MacroAssumptions,
@@ -288,6 +289,9 @@ class CommodityForecastModel:
         self.scenario_engine = CommodityScenarioEngine()
         self.variance_tracker = VarianceTracker()
         self.monthly_pipeline = MonthlyUpdatePipeline()
+        # Regime detector: stores last detection per commodity for dashboard display
+        self._regime_detector = RegimeDetector()
+        self.last_regime: dict[str, dict] = {}
         # Build commodity→preferred_method mapping from settings
         self._method_map = {}
         for c in self.settings.get("commodities", []):
@@ -585,27 +589,87 @@ class CommodityForecastModel:
         self, commodity: str, commodity_df: pd.DataFrame, macro_df: pd.DataFrame | None
     ) -> ForecastResult:
         """
-        Ensemble forecast: weighted blend of SARIMAX + XGBoost.
-        Weights are inversely proportional to CV MAPE (better model gets more weight).
+        Ensemble forecast: regime-adaptive weighted blend of SARIMAX + XGBoost.
+
+        Regime detection (Hurst exponent) switches ensemble weights automatically:
+          Mean-reverting → SARIMAX dominant (H < 0.45)
+          Trending       → XGBoost dominant (H > 0.55)
+          Volatile       → Equal-weight with higher scenario weight
+
+        Falls back to inverse-MAPE weights when regime is uncertain.
         """
         sarimax_result = self.forecast_sarimax(commodity)
         xgb_result = self.forecast_xgboost(commodity, commodity_df, macro_df)
 
-        # Weight by inverse CV MAPE (lower error = higher weight)
+        # ── Step 1: Error-based weights (inverse CV MAPE) ────────────────────
         sarimax_fitted = self.sarimax_models[commodity].model_fit.fittedvalues
-        sarimax_train_mape = float(
-            mean_absolute_percentage_error(
-                commodity_df[commodity].iloc[-len(sarimax_fitted):],
-                sarimax_fitted
-            ) * 100
-        )
+        if isinstance(commodity_df.index, pd.DatetimeIndex):
+            price_col = commodity_df[commodity] if commodity in commodity_df.columns else None
+        else:
+            price_col = (
+                commodity_df.set_index("date")[commodity]
+                if "date" in commodity_df.columns and commodity in commodity_df.columns
+                else None
+            )
+
+        if price_col is not None:
+            sarimax_train_mape = float(
+                mean_absolute_percentage_error(
+                    price_col.iloc[-len(sarimax_fitted):], sarimax_fitted
+                ) * 100
+            )
+        else:
+            sarimax_train_mape = 10.0
+
         xgb_mape = self._cv_metrics.get(commodity, {}).get("cv_mape_mean", sarimax_train_mape)
 
         total_inv = (1 / (sarimax_train_mape + 1e-6)) + (1 / (xgb_mape + 1e-6))
-        w_sarimax = (1 / (sarimax_train_mape + 1e-6)) / total_inv
-        w_xgb = (1 / (xgb_mape + 1e-6)) / total_inv
+        w_sarimax_err = (1 / (sarimax_train_mape + 1e-6)) / total_inv
+        w_xgb_err = (1 / (xgb_mape + 1e-6)) / total_inv
 
+        # ── Step 2: Regime detection — adaptive weight switching ─────────────
+        try:
+            if price_col is not None and len(price_col.dropna()) >= 12:
+                prices_np = price_col.dropna().values
+                regime_result = self._regime_detector.detect(prices_np)
+                self.last_regime[commodity] = regime_result
+
+                regime_weights = regime_result["ensemble_weights"]
+                error_weights = {
+                    "sarimax": w_sarimax_err,
+                    "xgboost": w_xgb_err,
+                    "futures": 0.0,
+                    "scenarios": 0.0,
+                }
+                # Blend: 60% regime-based, 40% error-based
+                blended = self._regime_detector.blend_weights(
+                    regime_weights, error_weights, alpha=0.6
+                )
+                w_sarimax = blended["sarimax"]
+                w_xgb = blended["xgboost"]
+
+                logger.info(
+                    f"Regime [{commodity}]: {regime_result['regime'].value} "
+                    f"(H={regime_result['hurst']:.3f}) → "
+                    f"SARIMAX w={w_sarimax:.2f}, XGBoost w={w_xgb:.2f}"
+                )
+            else:
+                w_sarimax = w_sarimax_err
+                w_xgb = w_xgb_err
+        except Exception as exc:
+            logger.warning(f"Regime detection failed for {commodity}: {exc} — using error weights")
+            w_sarimax = w_sarimax_err
+            w_xgb = w_xgb_err
+
+        # ── Step 3: Blend forecasts ───────────────────────────────────────────
         n = min(len(sarimax_result.point_forecast), len(xgb_result.point_forecast))
+
+        # Re-normalise w_sarimax + w_xgb (they may not sum to 1 after blending)
+        w_total = w_sarimax + w_xgb
+        if w_total > 1e-9:
+            w_sarimax /= w_total
+            w_xgb /= w_total
+
         ensemble_forecast = [
             w_sarimax * s + w_xgb * x
             for s, x in zip(sarimax_result.point_forecast[:n], xgb_result.point_forecast[:n])
@@ -627,9 +691,7 @@ class CommodityForecastModel:
             for s, x in zip(sarimax_result.upper_80[:n], xgb_result.upper_80[:n])
         ]
 
-        logger.info(
-            f"Ensemble {commodity}: SARIMAX w={w_sarimax:.2f}, XGBoost w={w_xgb:.2f}"
-        )
+        regime_info = self.last_regime.get(commodity, {})
 
         return ForecastResult(
             commodity=commodity,
@@ -639,12 +701,15 @@ class CommodityForecastModel:
             upper_80=upper_80,
             lower_95=lower_95,
             upper_95=upper_95,
-            model_type="Ensemble",
+            model_type="Ensemble (Regime-Adaptive)",
             metrics={
                 "sarimax_weight": w_sarimax,
                 "xgb_weight": w_xgb,
                 "sarimax_mape": sarimax_train_mape,
                 "xgb_cv_mape": xgb_mape,
+                "regime": regime_info.get("regime", "unknown") if isinstance(regime_info.get("regime"), str) else str(regime_info.get("regime", "unknown")),
+                "hurst": regime_info.get("hurst", 0.5),
+                "regime_confidence": regime_info.get("confidence", "unknown"),
             },
             feature_importance=self._feature_importance.get(commodity, pd.DataFrame()).to_dict("list")
             if isinstance(self._feature_importance.get(commodity), pd.DataFrame) else {},

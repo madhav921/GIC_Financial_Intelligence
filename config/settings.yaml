@@ -1,10 +1,17 @@
 # ══════════════════════════════════════════════════════════════════
-#  GIC Plan-to-Perform: Master Configuration  v0.2.0
+#  GIC Plan-to-Perform: Master Configuration  v0.3.0
 # ══════════════════════════════════════════════════════════════════
 
 project:
   name: "GIC Plan-to-Perform Engine"
-  version: "0.2.0"
+  version: "0.3.0"
+
+# ── Plug-and-Play Data Sources ───────────────────────────────────
+# Change these two lines to swap data sources with zero code change.
+# operational_data_source: synthetic | parquet | sap | salesforce
+# market_data_source:      live | parquet | synthetic
+operational_data_source: synthetic
+market_data_source: live
 
 # ── Data Paths ───────────────────────────────────────────────────
 paths:
@@ -209,24 +216,29 @@ commodity_scenarios:
     Polypropylene: { current: 1200, bear: 900, base: 1300, bull: 1600 }
     ABS_Resin:   { current: 1500, bear: 1100, base: 1600, bull: 2000 }
 
-# ── Vehicle Segments (JLR context) ───────────────────────────────
+# ── Vehicle Segments (JLR-calibrated — public financials 2024) ───
+# Revenue target: ~£20-25B  |  EBIT target: ~5-8%
 vehicle_segments:
   - segment: "Luxury_SUV"
-    models: ["Range Rover", "Range Rover Sport"]
-    avg_price_usd: 105000
-    annual_volume: 80000
+    models: ["Range Rover", "Range Rover Sport", "Range Rover Velar"]
+    avg_price_usd: 95000
+    annual_volume: 110000
+    incentive_pct: 0.03
   - segment: "Premium_SUV"
     models: ["Defender", "Discovery"]
-    avg_price_usd: 72000
-    annual_volume: 120000
+    avg_price_usd: 62000
+    annual_volume: 155000
+    incentive_pct: 0.04
   - segment: "Performance"
-    models: ["F-PACE", "E-PACE"]
-    avg_price_usd: 58000
+    models: ["F-PACE", "E-PACE", "F-TYPE"]
+    avg_price_usd: 56000
     annual_volume: 65000
+    incentive_pct: 0.05
   - segment: "EV"
-    models: ["I-PACE", "Future EV"]
-    avg_price_usd: 82000
-    annual_volume: 45000
+    models: ["I-PACE", "Range Rover Electric", "Defender Electric"]
+    avg_price_usd: 75000
+    annual_volume: 18000
+    incentive_pct: 0.08
 
 # ── Forecast Configuration ───────────────────────────────────────
 forecast:
@@ -236,15 +248,15 @@ forecast:
   min_training_months: 24
   feature_lag_months: [1, 3, 6, 12]
 
-# ── Financial Model ──────────────────────────────────────────────
+# ── Financial Model (JLR-calibrated — UK public financials) ──────
 financial:
-  base_cogs_pct: 0.68        # base COGS as % of revenue
-  material_cogs_fraction: 0.45  # fraction of COGS driven by raw material commodity prices
-  warranty_reserve_pct: 0.025
-  tax_rate: 0.21
+  base_cogs_pct: 0.775           # JLR actual: ~77.5% COGS/revenue ratio
+  material_cogs_fraction: 0.45   # Raw materials = 45% of COGS
+  warranty_reserve_pct: 0.018    # 1.8% of revenue (JLR historical avg)
+  tax_rate: 0.19                 # UK corporation tax rate
   discount_rate: 0.08
   depreciation_years: 7
-  monthly_depreciation_usd: 8_000_000  # monthly straight-line depreciation (CapEx approx)
+  monthly_depreciation_usd: 95_000_000  # ~£1.14B annual CapEx depreciation (JLR scale)
 
 # ── Monte Carlo Simulation ───────────────────────────────────────
 simulation:

@@ -208,3 +208,148 @@ class MonteCarloEngine:
                 "oi_p95": stats["operating_income"]["p95"],
             })
         return pd.DataFrame(records).round(0)
+
+    # ── Fan chart: monthly time-series with uncertainty bands ─────────────────
+
+    def run_monthly_fan(
+        self,
+        base_pnl: pd.DataFrame,
+        n_simulations: int = 2000,
+        demand_vol: float = 0.10,
+        commodity_vol: float = 0.20,
+        fx_vol: float = 0.05,
+    ) -> pd.DataFrame:
+        """
+        Run Monte Carlo across each month in base_pnl and return percentile bands.
+
+        Used by the Executive Summary fan chart.
+
+        Args:
+            base_pnl:      Monthly P&L DataFrame from FinancialModel.build_pnl()
+            n_simulations: Simulations per month
+            demand_vol:    Monthly demand shock std dev
+            commodity_vol: Monthly commodity shock std dev (t-dist, fat tails)
+            fx_vol:        Monthly FX shock std dev
+
+        Returns:
+            DataFrame with columns: date, mean_oi, p5_oi, p10_oi, p25_oi,
+                                    p75_oi, p90_oi, p95_oi
+            Plus summary scalars accessible as attributes:
+                annual_mean_oi, var_95, cvar_95
+        """
+        rng = np.random.default_rng(self.seed)
+        material_fraction = self.settings["financial"]["material_cogs_fraction"]
+
+        rows = []
+        for _, month_row in base_pnl.iterrows():
+            base_rev = float(month_row["net_revenue"])
+            base_cogs = float(month_row["total_cogs"])
+            base_gm = float(month_row["gross_margin"])
+            other_costs = base_gm - float(month_row["operating_income"])
+
+            demand_shocks = rng.normal(0, demand_vol, n_simulations)
+            comm_shocks = rng.standard_t(df=5, size=n_simulations) * commodity_vol
+            fx_shocks = rng.normal(0, fx_vol, n_simulations)
+
+            rev_sim = base_rev * (1 + demand_shocks) * (1 + fx_shocks)
+            cogs_sim = (
+                base_cogs * (1 + demand_shocks)
+                + base_cogs * material_fraction * comm_shocks
+            )
+            oi_sim = rev_sim - cogs_sim - other_costs
+
+            rows.append({
+                "date": month_row["date"],
+                "mean_oi": float(np.mean(oi_sim)),
+                "p5_oi": float(np.percentile(oi_sim, 5)),
+                "p10_oi": float(np.percentile(oi_sim, 10)),
+                "p25_oi": float(np.percentile(oi_sim, 25)),
+                "p75_oi": float(np.percentile(oi_sim, 75)),
+                "p90_oi": float(np.percentile(oi_sim, 90)),
+                "p95_oi": float(np.percentile(oi_sim, 95)),
+            })
+
+        fan_df = pd.DataFrame(rows)
+        logger.info(
+            f"Monthly fan chart: {len(fan_df)} months, "
+            f"mean annual OI = {fan_df['mean_oi'].sum():,.0f}"
+        )
+        return fan_df
+
+    # ── Variance decomposition ────────────────────────────────────────────────
+
+    def decompose_variance(
+        self,
+        sales_df: pd.DataFrame,
+        commodity_index_df: pd.DataFrame,
+        n_simulations: int = 3000,
+        demand_vol: float = 0.10,
+        commodity_vol: float = 0.20,
+        fx_vol: float = 0.05,
+    ) -> dict:
+        """
+        Decompose P&L uncertainty by source: commodity, demand, FX.
+
+        Runs 3 partial simulations (holding 2 sources fixed each time)
+        then attributes variance proportionally.
+
+        Returns:
+            dict with keys: commodity_pct, demand_pct, fx_pct
+            (percentages that sum to 100)
+        """
+        rng = np.random.default_rng(self.seed)
+        financial_model = FinancialModel()
+        base_pnl = financial_model.build_pnl(sales_df, commodity_index_df)
+        base_revenue = float(base_pnl["net_revenue"].sum())
+        base_cogs = float(base_pnl["total_cogs"].sum())
+        base_margin = float(base_pnl["gross_margin"].sum())
+        base_oi = float(base_pnl["operating_income"].sum())
+        other_costs = base_margin - base_oi
+        material_fraction = self.settings["financial"]["material_cogs_fraction"]
+
+        def _sim_oi(shock_demand: bool, shock_commodity: bool, shock_fx: bool) -> np.ndarray:
+            n = n_simulations
+            d = rng.normal(0, demand_vol, n) if shock_demand else np.zeros(n)
+            c = rng.standard_t(df=5, size=n) * commodity_vol if shock_commodity else np.zeros(n)
+            f = rng.normal(0, fx_vol, n) if shock_fx else np.zeros(n)
+
+            rev = base_revenue * (1 + d) * (1 + f)
+            cogs = base_cogs * (1 + d) + base_cogs * material_fraction * c
+            oi = rev - cogs - other_costs
+            return oi
+
+        # Total
+        total_oi = _sim_oi(True, True, True)
+        total_var = float(np.var(total_oi))
+
+        # Each component in isolation
+        comm_oi = _sim_oi(False, True, False)
+        demand_oi = _sim_oi(True, False, False)
+        fx_oi = _sim_oi(False, False, True)
+
+        comm_var = float(np.var(comm_oi))
+        demand_var = float(np.var(demand_oi))
+        fx_var = float(np.var(fx_oi))
+
+        total_measured = comm_var + demand_var + fx_var
+        if total_measured < 1e-9:
+            return {"commodity_pct": 33.3, "demand_pct": 33.3, "fx_pct": 33.4}
+
+        result = {
+            "commodity_pct": round(comm_var / total_measured * 100, 1),
+            "demand_pct": round(demand_var / total_measured * 100, 1),
+            "fx_pct": round(fx_var / total_measured * 100, 1),
+            "total_var": round(total_var, 0),
+            "var_95": round(float(np.percentile(total_oi, 5)) - float(np.mean(total_oi)), 0),
+            "cvar_95": round(
+                float(np.mean(total_oi[total_oi <= np.percentile(total_oi, 5)])) - float(np.mean(total_oi)),
+                0,
+            ),
+            "annual_mean_oi": round(float(np.mean(total_oi)) * len(base_pnl), 0),
+        }
+
+        logger.info(
+            f"Variance decomposition: commodity={result['commodity_pct']}%, "
+            f"demand={result['demand_pct']}%, fx={result['fx_pct']}%"
+        )
+        return result

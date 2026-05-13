@@ -9,11 +9,16 @@ Codified financial logic translating drivers into financial outcomes:
 
 This is the core financial calculation engine that sits between
 the AI models (Layer 3) and the Scenario Simulation (Layer 4).
+
+Dependency injection pattern:
+  FinancialModel(data_source=get_operational_source())
+  → business logic is source-agnostic; swap config to change source
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -23,6 +28,9 @@ from src.config import get_settings
 from src.drivers.capital_drivers import CapitalDrivers
 from src.drivers.cost_drivers import CostDrivers
 from src.drivers.revenue_drivers import RevenueDrivers
+
+if TYPE_CHECKING:
+    from src.data.data_source_protocol import OperationalDataSource
 
 
 @dataclass
@@ -45,13 +53,18 @@ class FinancialModel:
     """
     Deterministic financial model that combines all driver outputs
     into a unified P&L, cash flow, and margin analysis.
+
+    Accepts an optional OperationalDataSource for dependency injection.
+    When not provided, reads config and uses the configured source.
     """
 
-    def __init__(self):
+    def __init__(self, data_source: "OperationalDataSource | None" = None):
         self.settings = get_settings()
         self.revenue_drivers = RevenueDrivers()
         self.cost_drivers = CostDrivers()
         self.capital_drivers = CapitalDrivers()
+        # Lazy-resolve data_source to avoid circular imports at module load time
+        self._data_source = data_source
 
     def _apply_pnl_items(self, pnl: pd.DataFrame) -> pd.DataFrame:
         """Apply warranty, depreciation, tax and net income to a gross-margin DataFrame."""
@@ -155,3 +168,63 @@ class FinancialModel:
         pnl = cogs_df.copy()
         pnl = self._apply_pnl_items(pnl)
         return pnl
+
+    # ── Commodity shock injection ─────────────────────────────────────────────
+
+    def apply_commodity_shock(
+        self,
+        base_pnl: pd.DataFrame,
+        shocks: dict[str, float],
+    ) -> pd.DataFrame:
+        """
+        Apply commodity price shocks to a base P&L DataFrame and recompute
+        all downstream line items (gross margin → EBIT → net income).
+
+        Args:
+            base_pnl: Output from build_pnl() — monthly P&L DataFrame.
+            shocks:   Dict of {commodity_name: fractional_shock}
+                      e.g. {"lithium": 0.20, "steel": -0.05}
+
+        Returns:
+            Modified monthly P&L DataFrame with shock effects fully propagated.
+        """
+        from src.models.commodity_shock import CommodityShockCalculator
+
+        calc = CommodityShockCalculator()
+        shocked_pnl = base_pnl.copy()
+        total_revenue = float(base_pnl["net_revenue"].sum())
+
+        if total_revenue <= 0:
+            logger.warning("apply_commodity_shock: base_pnl has zero revenue — returning unchanged")
+            return shocked_pnl
+
+        for commodity, shock_pct in shocks.items():
+            if abs(shock_pct) < 1e-6:
+                continue
+            impact = calc.compute_shock(commodity, shock_pct, total_revenue)
+            # Distribute COGS impact proportionally across months
+            monthly_weight = base_pnl["net_revenue"] / total_revenue
+            shocked_pnl["total_cogs"] = (
+                shocked_pnl["total_cogs"] + impact["cogs_impact"] * monthly_weight
+            )
+            logger.debug(
+                f"Shock {commodity} {shock_pct:+.1%}: "
+                f"COGS impact = {impact['cogs_impact']:+,.0f}"
+            )
+
+        # Recompute all downstream items
+        shocked_pnl = self._apply_pnl_items(shocked_pnl)
+        logger.info(
+            f"Shocked P&L: total COGS delta = "
+            f"{shocked_pnl['total_cogs'].sum() - base_pnl['total_cogs'].sum():+,.0f}"
+        )
+        return shocked_pnl
+
+    @property
+    def data_source(self) -> "OperationalDataSource":
+        """Lazily resolve operational data source from config if not injected."""
+        if self._data_source is None:
+            from src.data.data_router import get_operational_source
+            self._data_source = get_operational_source()
+        return self._data_source
+

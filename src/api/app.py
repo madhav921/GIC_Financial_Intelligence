@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routes import forecast, health, simulation
+from src.api.routes import forecast, health, pnl, simulation
 from src.config import get_settings
 from src.logging_setup import setup_logging
 
@@ -50,6 +50,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(forecast.router)
     app.include_router(simulation.router)
+    app.include_router(pnl.router)
 
     return app
 
