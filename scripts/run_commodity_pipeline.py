@@ -326,6 +326,36 @@ def main():
     entries = audit.get_entries()
     print(f"\n  Audit trail entries: {len(entries)}")
 
+    # Save pipeline results to JSON for downstream consumers (report generator, dashboard)
+    import json as _json
+    from datetime import datetime as _dt
+
+    pipeline_results = {
+        "generated_at": _dt.now().isoformat(),
+        "n_commodities": len(train_results),
+        "model_metrics": {},
+    }
+    for commodity, res in train_results.items():
+        xgb = res.get("xgboost_metrics", {})
+        cv  = res.get("cv_metrics", {})
+        sar = res.get("sarimax_metrics", {})
+        pipeline_results["model_metrics"][commodity] = {
+            "xgb_mape":      xgb.get("mape", None),
+            "xgb_mae":       xgb.get("mae", None),
+            "xgb_rmse":      xgb.get("rmse", None),
+            "xgb_dir_acc":   xgb.get("directional_accuracy", None),
+            "cv_mape_mean":  cv.get("cv_mape_mean", None),
+            "cv_mape_std":   cv.get("cv_mape_std", None),
+            "cv_dir_acc":    cv.get("cv_directional_accuracy", None),
+            "sarimax_aic":   sar.get("aic", None),
+            "sarimax_mae":   sar.get("mae", None),
+        }
+
+    results_path = Path(__file__).resolve().parents[1] / "models" / "pipeline_results.json"
+    results_path.parent.mkdir(parents=True, exist_ok=True)
+    results_path.write_text(_json.dumps(pipeline_results, indent=2), encoding="utf-8")
+    print(f"\n  Pipeline results saved → {results_path}")
+
     # ═══════════════════════════════════════════════════════════════
     _print_header("Pipeline Complete!")
     print(f"\n  Models trained:     {len(train_results)} commodities")

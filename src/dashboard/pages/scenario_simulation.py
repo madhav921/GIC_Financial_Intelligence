@@ -81,7 +81,7 @@ def _render_monte_carlo():
         commodity_mean = st.slider("Commodity Bias (%)", -30, 30, 0) / 100
         use_fat_tails = st.checkbox("Fat-Tailed Distribution (t-dist)", value=True)
 
-        run_sim = st.button("Run Simulation", type="primary", width='stretch')
+        run_sim = st.button("Run Simulation", type="primary", use_container_width=True)
 
     with col2:
         if run_sim:
@@ -145,7 +145,7 @@ def _render_monte_carlo():
                     height=450,
                     template="plotly_dark",
                 )
-                st.plotly_chart(fig, width='stretch')
+                st.plotly_chart(fig, use_container_width=True)
 
                 # Percentile table
                 st.markdown("### Percentile Analysis")
@@ -161,7 +161,7 @@ def _render_monte_carlo():
                     })
                 st.dataframe(
                     __import__("pandas").DataFrame(perc_data),
-                    width='stretch',
+                    use_container_width=True,
                     hide_index=True,
                 )
         else:
@@ -243,7 +243,7 @@ def _render_what_if():
         totals=dict(marker=dict(color="#007aff")),
     ))
     fig.update_layout(height=400, template="plotly_dark", title="Scenario Waterfall")
-    st.plotly_chart(fig, width='stretch')
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def _render_scenario_comparison():
@@ -279,7 +279,7 @@ def _render_scenario_comparison():
         })
 
     import pandas as pd
-    st.dataframe(pd.DataFrame(records), width='stretch', hide_index=True)
+    st.dataframe(pd.DataFrame(records), use_container_width=True, hide_index=True)
 
     # Chart
     margin_values = []
@@ -303,4 +303,4 @@ def _render_scenario_comparison():
         height=400,
         template="plotly_dark",
     )
-    st.plotly_chart(fig, width='stretch')
+    st.plotly_chart(fig, use_container_width=True)

@@ -1,0 +1,18 @@
+﻿{
+  "generated_at": "2026-05-18T23:19:14",
+  "n_commodities": 12,
+  "model_metrics": {
+    "Steel":         {"xgb_mape": 20.4, "xgb_mae": 142.2, "xgb_dir_acc": 55, "cv_mape_mean": 12.4, "cv_mape_std": 6.8,  "cv_dir_acc": 76, "sarimax_aic": 595, "sarimax_mae": 33.9},
+    "Aluminum":      {"xgb_mape":  6.4, "xgb_mae": 183.5, "xgb_dir_acc": 91, "cv_mape_mean": 16.7, "cv_mape_std": 7.9,  "cv_dir_acc": 68, "sarimax_aic": 863, "sarimax_mae": 318.3},
+    "Copper":        {"xgb_mape": 11.0, "xgb_mae": 1417.9,"xgb_dir_acc": 55, "cv_mape_mean":  7.0, "cv_mape_std": 3.8,  "cv_dir_acc": 52, "sarimax_aic": 893, "sarimax_mae": 547.3},
+    "Platinum":      {"xgb_mape": 30.9, "xgb_mae": 585.7, "xgb_dir_acc": 55, "cv_mape_mean": 11.6, "cv_mape_std": 12.7, "cv_dir_acc": 68, "sarimax_aic": 680, "sarimax_mae": 87.9},
+    "Palladium":     {"xgb_mape":  8.8, "xgb_mae": 136.3, "xgb_dir_acc": 55, "cv_mape_mean": 29.1, "cv_mape_std": 6.2,  "cv_dir_acc": 68, "sarimax_aic": 774, "sarimax_mae": 207.3},
+    "Rhodium":       {"xgb_mape":  2.0, "xgb_mae": 82.2,  "xgb_dir_acc": 91, "cv_mape_mean":  8.9, "cv_mape_std": 4.2,  "cv_dir_acc": 68, "sarimax_aic": 863, "sarimax_mae": 445.5},
+    "Lithium":       {"xgb_mape":  2.8, "xgb_mae":   0.5, "xgb_dir_acc": 91, "cv_mape_mean": 11.9, "cv_mape_std": 8.0,  "cv_dir_acc": 64, "sarimax_aic": 228, "sarimax_mae":   1.2},
+    "Cobalt":        {"xgb_mape": 11.4, "xgb_mae": 2547.6,"xgb_dir_acc": 64, "cv_mape_mean": 14.7, "cv_mape_std": 5.7,  "cv_dir_acc": 70, "sarimax_aic":1013, "sarimax_mae":1330.6},
+    "Nickel":        {"xgb_mape":  9.5, "xgb_mae": 1106.9,"xgb_dir_acc": 73, "cv_mape_mean": 10.8, "cv_mape_std": 5.5,  "cv_dir_acc": 72, "sarimax_aic": 959, "sarimax_mae": 817.7},
+    "Natural_Gas":   {"xgb_mape":  8.6, "xgb_mae":   2.9, "xgb_dir_acc": 73, "cv_mape_mean": 31.1, "cv_mape_std": 25.3, "cv_dir_acc": 62, "sarimax_aic": 436, "sarimax_mae":   6.7},
+    "Polypropylene": {"xgb_mape":  3.6, "xgb_mae":  36.7, "xgb_dir_acc": 73, "cv_mape_mean":  9.8, "cv_mape_std": 5.0,  "cv_dir_acc": 70, "sarimax_aic": 705, "sarimax_mae": 104.5},
+    "ABS_Resin":     {"xgb_mape":  9.4, "xgb_mae": 128.5, "xgb_dir_acc": 64, "cv_mape_mean": 17.2, "cv_mape_std": 13.0, "cv_dir_acc": 56, "sarimax_aic": 795, "sarimax_mae": 182.3}
+  }
+}

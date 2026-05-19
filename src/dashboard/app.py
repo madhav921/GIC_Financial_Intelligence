@@ -31,6 +31,7 @@ def main():
         "Navigate",
         [
             "Executive Summary",
+            "📋 Intelligence Report",
             "Commodity Intelligence",
             "Financial P&L",
             "Scenario Simulation",
@@ -58,6 +59,9 @@ def main():
     if page == "Executive Summary":
         from src.dashboard.pages import executive_summary
         executive_summary.render()
+    elif page == "📋 Intelligence Report":
+        from src.dashboard.pages import intelligence_report
+        intelligence_report.render()
     elif page == "Commodity Intelligence":
         from src.dashboard.pages import commodity_intelligence
         commodity_intelligence.render()

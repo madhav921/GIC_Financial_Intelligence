@@ -113,7 +113,7 @@ def _render_pnl_overview(pdf):
         yaxis_title="USD",
         margin=dict(l=40, r=20, t=30, b=40),
     )
-    st.plotly_chart(fig, width='stretch')
+    st.plotly_chart(fig, use_container_width=True)
 
     # Monthly revenue trend
     st.subheader("Monthly Revenue & Margin Trend")
@@ -148,7 +148,7 @@ def _render_pnl_overview(pdf):
         legend=dict(orientation="h", yanchor="bottom", y=1.02),
         margin=dict(l=40, r=20, t=30, b=40),
     )
-    st.plotly_chart(fig, width='stretch')
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def _render_segment_analysis(pdf):
@@ -176,7 +176,7 @@ def _render_segment_analysis(pdf):
             color_discrete_sequence=px.colors.qualitative.Set2,
         )
         fig.update_layout(template="plotly_dark", height=350)
-        st.plotly_chart(fig, width='stretch')
+        st.plotly_chart(fig, use_container_width=True)
 
     with col2:
         fig = px.bar(
@@ -186,7 +186,7 @@ def _render_segment_analysis(pdf):
             color_discrete_sequence=px.colors.qualitative.Set2,
         )
         fig.update_layout(template="plotly_dark", height=350, showlegend=False)
-        st.plotly_chart(fig, width='stretch')
+        st.plotly_chart(fig, use_container_width=True)
 
     # Segment detail table
     st.subheader("Segment Financial Summary")
@@ -194,7 +194,7 @@ def _render_segment_analysis(pdf):
     seg_data["Volume"] = seg_data["volume"].apply(lambda x: f"{x:,}")
     seg_data["Avg Price"] = seg_data["avg_price"].apply(lambda x: format_currency(x))
     display_cols = ["segment", "Volume", "Revenue", "Avg Price"]
-    st.dataframe(seg_data[display_cols], width='stretch', hide_index=True)
+    st.dataframe(seg_data[display_cols], use_container_width=True, hide_index=True)
 
 
 def _render_cost_impact(pdf, commodity_df):
@@ -239,4 +239,4 @@ def _render_cost_impact(pdf, commodity_df):
         height=400,
         template="plotly_dark",
     )
-    st.plotly_chart(fig, width='stretch')
+    st.plotly_chart(fig, use_container_width=True)
