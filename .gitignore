@@ -48,7 +48,9 @@ logs/audit/*.jsonl
 # Streamlit
 .streamlit/
 
-docs/
+# docs/
+logs/
+
 # OS
 .DS_Store
 Thumbs.db

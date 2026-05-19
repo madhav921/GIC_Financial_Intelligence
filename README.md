@@ -35,6 +35,11 @@
    - Known limitations & edge cases
    - Roadmap (Q3-Q4 2026)
 
+5. **[docs/FULL_ARCHITECTURE_RUN.md](docs/FULL_ARCHITECTURE_RUN.md)** (actual validated numbers)
+   - 2024 hold-out backtest results (real commodity data)
+   - Layer-by-layer code execution trace with actual metrics
+   - P&L breakdown by segment, hedge savings, Monte Carlo calibration proof
+
 ---
 
 ## What Is GIC?
@@ -107,33 +112,6 @@ GIC is organized in **5 layers**, each with a specific role:
 ```
 
 **See [docs/ARCHITECTURE_GUIDE.md](docs/ARCHITECTURE_GUIDE.md) for detailed walkthrough of each layer.**
-│  │ • FX movements   │  │ t-distribution    │  │ • Cash Flow Risk           │  │
-│  │ • 7 Presets      │  │ (fat tails, df=5) │  │ • Percentile Analysis      │  │
-│  └──────────────────┘  └───────────────────┘  │ • Strategic Planning       │  │
-│                                                └─────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-                                      │
-                                      ▼
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         GOVERNANCE LAYER (Layer 5)                               │
-│                                                                                 │
-│  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐  ┌────────────────┐   │
-│  │ Audit Trail   │  │ Bias Tracking │  │ Explainability│  │ Market         │   │
-│  │ (JSONL)       │  │               │  │               │  │ Intelligence   │   │
-│  │               │  │ Mean/Median   │  │ Natural-lang  │  │                │   │
-│  │ Append-only   │  │ Bias metrics  │  │ explanations  │  │ Regime detect. │   │
-│  │ UUID entries  │  │ Trend alerts  │  │ Model cards   │  │ Alert engine   │   │
-│  └───────────────┘  └───────────────┘  └───────────────┘  └────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────────────┘
-                                      │
-                        ┌─────────────┼─────────────┐
-                        ▼             ▼             ▼
-                 ┌────────────┐ ┌──────────┐ ┌────────────┐
-                 │ Streamlit  │ │ FastAPI   │ │ Executive  │
-                 │ Dashboard  │ │ REST API  │ │ Reports    │
-                 │ (6 pages)  │ │ + Swagger │ │            │
-                 └────────────┘ └──────────┘ └────────────┘
-```
 
 ---
 
@@ -271,7 +249,7 @@ gic-plan-to-perform/
 ### 1. Clone & Install
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/madhav921/GIC_Financial_Intelligence.git
 cd gic-plan-to-perform
 
 python -m venv venv
