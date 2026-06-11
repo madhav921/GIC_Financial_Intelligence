@@ -58,3 +58,9 @@ Thumbs.db
 docs/archive/
 # Auth layer local user store
 auth/users.json
+
+# ── Frontend (React) ──
+frontend/node_modules/
+frontend/build/
+frontend/.env
+npm-debug.log*

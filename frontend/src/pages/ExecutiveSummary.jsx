@@ -12,6 +12,11 @@ import {
 import KPICard from '../components/Charts/KPICard';
 import Loading from '../components/common/Loading';
 import Badge from '../components/common/Badge';
+import LiveMarketTape from '../components/realtime/LiveMarketTape';
+import LiveKpiStrip from '../components/realtime/LiveKpiStrip';
+import InsightCard from '../components/insights/InsightCard';
+import RiskGauge from '../components/insights/RiskGauge';
+import useRealtime from '../hooks/useRealtime';
 import { gicApi } from '../api/client';
 
 // ── Mock fallback data ────────────────────────────────────────────────────────
@@ -59,6 +64,58 @@ const COMMODITY_TREND = [
   { month: 'Nov', index: 121 }, { month: 'Dec', index: 119 },
 ];
 
+// ── Mock fallbacks for actionable-intelligence sections ───────────────────────
+const MOCK_INSIGHTS = {
+  insights: [
+    {
+      id: 'EX-1', category: 'Commodity', severity: 'critical', priority: 1,
+      title: 'Lithium spike threatens EV battery margin',
+      finding: 'Lithium is +12.3% vs plan, lifting EV pack cost by an estimated £74M against budget.',
+      reasoning: 'Sustained spot breakout above the plan anchor; elasticity maps 1% input move to ~£6M EV BOM impact.',
+      impact_gbp: -74000000, impact_label: '-£74.0M', confidence: 0.82,
+      recommended_action: 'Execute the pre-approved 6-month lithium hedge and re-open supplier index clauses.',
+      expected_action_savings_gbp: 41000000, affected_segments: ['EV', 'Performance'],
+      supporting_metrics: { variance_pct: 12.3, spot_price: 15950 },
+    },
+    {
+      id: 'EX-2', category: 'Warranty', severity: 'critical', priority: 1,
+      title: 'EV battery failures running ahead of accrual',
+      finding: 'Projected 12M warranty cost exceeds the booked accrual by £18M on 2024-build EV packs.',
+      reasoning: 'Weibull hazard fit shows accelerating early-life failures; 7.4% shortfall vs modelled liability.',
+      impact_gbp: -18000000, impact_label: '-£18.0M', confidence: 0.71,
+      recommended_action: 'Top up the warranty accrual by £18M and launch an 8D on the cell supplier batch.',
+      expected_action_savings_gbp: 12000000, affected_segments: ['EV'],
+      supporting_metrics: { shortfall_pct: 7.4 },
+    },
+    {
+      id: 'EX-3', category: 'Commodity', severity: 'warning', priority: 2,
+      title: 'Aluminium softening — procurement timing opportunity',
+      finding: 'Aluminium is forecast to ease 4-6%, opening a £19M cost-down on body structures.',
+      reasoning: 'Improved supply and inventory builds drive the downward nowcast at 79% confidence.',
+      impact_gbp: 19000000, impact_label: '+£19.0M', confidence: 0.79,
+      recommended_action: 'Defer non-critical aluminium POs by 4-6 weeks to capture the dip.',
+      expected_action_savings_gbp: 13000000, affected_segments: ['Luxury SUV', 'Premium SUV'],
+      supporting_metrics: { forecast_change_pct: -5.0 },
+    },
+  ],
+  summary: { n_critical: 2, n_warning: 3, total_impact_gbp: -36000000, total_opportunity_gbp: 109000000, weighted_confidence: 0.71 },
+};
+
+const MOCK_EARLY_WARNING = {
+  score: 58, band: 'elevated',
+  components: { commodity: 0.42, margin: 0.21, warranty: 0.24, demand: 0.13 },
+  top_drivers: ['Lithium spike', 'EV warranty trend', 'EU demand softening'],
+};
+
+function fmtGBPex(v) {
+  if (v === null || v === undefined) return '—';
+  const abs = Math.abs(v);
+  const sign = v < 0 ? '-' : '';
+  if (abs >= 1e9) return `${sign}£${(abs / 1e9).toFixed(2)}bn`;
+  if (abs >= 1e6) return `${sign}£${(abs / 1e6).toFixed(1)}M`;
+  return `${sign}£${abs.toFixed(0)}`;
+}
+
 const SEGMENT_COLORS = ['#3b82f6', '#8b5cf6', '#22c55e', '#f59e0b'];
 
 const ALERT_SEVERITY_STYLES = {
@@ -81,6 +138,9 @@ export default function ExecutiveSummary() {
   const [kpi, setKpi] = useState(null);
   const [segments, setSegments] = useState(MOCK_SEGMENTS);
   const [loading, setLoading] = useState(true);
+  const [insightsData, setInsightsData] = useState(MOCK_INSIGHTS);
+  const [earlyWarning, setEarlyWarning] = useState(MOCK_EARLY_WARNING);
+  const { snapshot } = useRealtime();
 
   useEffect(() => {
     let mounted = true;
@@ -98,10 +158,27 @@ export default function ExecutiveSummary() {
       }
     };
     fetchData();
+    // Actionable-intelligence sections (independent; degrade to mock)
+    (async () => {
+      try {
+        const feed = await gicApi.insightsFeed();
+        if (mounted && feed?.insights) setInsightsData(feed);
+      } catch { /* keep mock */ }
+    })();
+    (async () => {
+      try {
+        const ew = await gicApi.earlyWarning();
+        if (mounted && ew?.score !== undefined) setEarlyWarning(ew);
+      } catch { /* keep mock */ }
+    })();
     return () => { mounted = false; };
   }, []);
 
   const safeKpi = kpi || MOCK_KPI;
+  const feed = insightsData || MOCK_INSIGHTS;
+  const insightSummary = feed.summary || MOCK_INSIGHTS.summary;
+  const topInsights = (feed.insights || []).slice(0, 3);
+  const ew = earlyWarning || MOCK_EARLY_WARNING;
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -118,6 +195,12 @@ export default function ExecutiveSummary() {
         <h2 className="text-2xl font-bold text-white mb-1">Executive Summary</h2>
         <p className="text-slate-400 text-sm">GIC Plan-to-Perform · FY 2026 Consolidated View</p>
       </div>
+
+      {/* Live market tape (full width) */}
+      <LiveMarketTape />
+
+      {/* Live ticking KPIs */}
+      <LiveKpiStrip />
 
       {/* KPI Cards */}
       {loading ? (
@@ -289,6 +372,76 @@ export default function ExecutiveSummary() {
         <p className="text-xs text-slate-500 mt-3">
           Generated by google/flan-t5-base · Model confidence: High · Last run: 11 Jun 2026 09:05
         </p>
+      </div>
+
+      {/* ── Top Actionable Insights ─────────────────────────────────────────── */}
+      <div>
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+          <div>
+            <h3 className="text-lg font-semibold text-slate-100">Top Actionable Insights</h3>
+            <p className="text-slate-400 text-xs mt-0.5">Highest-impact, prescriptive recommendations</p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap text-xs">
+            <Badge label={`${insightSummary.n_critical} Critical`} color="red" />
+            <Badge label={`${insightSummary.n_warning} Warning`} color="yellow" />
+            <span className="px-2 py-0.5 rounded-full border border-slate-600 text-slate-300">
+              Net impact <span className="font-mono font-semibold">{fmtGBPex(insightSummary.total_impact_gbp)}</span>
+            </span>
+            <span className="px-2 py-0.5 rounded-full border border-emerald-700 text-emerald-300">
+              Upside <span className="font-mono font-semibold">{fmtGBPex(insightSummary.total_opportunity_gbp)}</span>
+            </span>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {topInsights.map((ins) => (
+            <InsightCard key={ins.id} insight={ins} />
+          ))}
+        </div>
+      </div>
+
+      {/* ── Risk gauge + AI executive narrative ─────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="rounded-xl p-6 border border-slate-700 flex flex-col items-center justify-center" style={{ backgroundColor: '#1e293b' }}>
+          <h3 className="text-lg font-semibold text-slate-100 mb-2 self-start">Early-Warning Risk</h3>
+          <RiskGauge score={ew.score} band={ew.band} size={240} label="Composite Score" />
+          {ew.top_drivers?.length > 0 && (
+            <div className="mt-4 w-full">
+              <div className="text-[11px] text-slate-500 uppercase tracking-wide mb-1.5">Top drivers</div>
+              <div className="flex flex-wrap gap-1.5">
+                {ew.top_drivers.slice(0, 3).map((dr) => (
+                  <span key={dr} className="text-[11px] px-2 py-0.5 rounded-full bg-slate-700/60 text-slate-300 border border-slate-600">{dr}</span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="lg:col-span-2 rounded-xl p-6 border border-blue-900/50" style={{ backgroundColor: '#1e293b' }}>
+          <div className="flex items-center gap-3 mb-3">
+            <span className="text-xl">🤖</span>
+            <h3 className="text-lg font-semibold text-slate-100">AI Executive Insight</h3>
+            <Badge label="Live synthesis" color="blue" />
+          </div>
+          <div className="rounded-lg p-4 border border-slate-700 text-sm text-slate-300 leading-relaxed" style={{ backgroundColor: '#0f172a' }}>
+            <p className="mb-2">
+              <span className="text-blue-400 font-semibold">Headline: </span>
+              {snapshot?.headline_insight || 'Commodity index stable; risk band holding within tolerance.'}
+            </p>
+            <p>
+              The early-warning model places composite risk at{' '}
+              <span className="font-semibold text-white">{Number(ew.score).toFixed(0)}/100</span>{' '}
+              (<span className="capitalize">{ew.band}</span>), driven principally by{' '}
+              <span className="text-amber-300 font-semibold">{ew.top_drivers?.[0] || 'commodity exposure'}</span>.
+              Against a net exposure of <span className="font-mono text-red-300">{fmtGBPex(insightSummary.total_impact_gbp)}</span>,
+              the insight engine identifies <span className="font-mono text-emerald-300">{fmtGBPex(insightSummary.total_opportunity_gbp)}</span> of
+              addressable upside — concentrated in hedging the lithium spike and timing aluminium procurement. EBIT nowcast currently reads{' '}
+              <span className="font-mono text-blue-300">£{((snapshot?.ebit_nowcast_gbp ?? 1.4e9) / 1e9).toFixed(2)}bn</span>.
+            </p>
+          </div>
+          <p className="text-xs text-slate-500 mt-3">
+            Synthesised from realtime snapshot, insights feed and early-warning model · {new Date().toLocaleString('en-GB')}
+          </p>
+        </div>
       </div>
     </div>
   );
