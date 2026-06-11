@@ -42,13 +42,7 @@ export default function PriceChart({ data = [], commodity = 'Commodity', color =
   const hasCI = data.some((d) => d.lower80 !== undefined || d.upper80 !== undefined);
 
   return (
-    <div
-      className="rounded-xl p-4 border border-slate-700"
-      style={{ backgroundColor: '#1e293b' }}
-    >
-      <div className="text-sm font-semibold text-slate-200 mb-4">
-        {commodity} — Price Trend & Forecast
-      </div>
+    <div>
       <ResponsiveContainer width="100%" height={280}>
         <ComposedChart data={data} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
           <defs>
@@ -109,3 +103,4 @@ export default function PriceChart({ data = [], commodity = 'Commodity', color =
     </div>
   );
 }
+

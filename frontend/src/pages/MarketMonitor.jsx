@@ -66,6 +66,15 @@ export default function MarketMonitor() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
+      {/* Backend connect banner */}
+      <div className="rounded-lg px-4 py-3 text-xs text-slate-400 border border-slate-700 flex items-center gap-2" style={{ backgroundColor: '#1e293b' }}>
+        <span className="text-blue-400">ℹ️</span>
+        Connect backend:{' '}
+        <code className="text-blue-300 font-mono">uvicorn src.api.app:app --port 8000</code>
+        {' '}· For real-time data run{' '}
+        <code className="text-blue-300 font-mono">python scripts/fetch_data.py</code>
+      </div>
+
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">Market Monitor</h1>

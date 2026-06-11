@@ -79,6 +79,14 @@ export default function Governance() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
+      {/* Backend connect banner */}
+      <div className="rounded-lg px-4 py-3 text-xs text-slate-400 border border-slate-700 flex items-center gap-2" style={{ backgroundColor: '#1e293b' }}>
+        <span className="text-blue-400">ℹ️</span>
+        Connect backend:{' '}
+        <code className="text-blue-300 font-mono">uvicorn src.api.app:app --port 8000</code>
+        {' '}— LLM narratives use real inference when connected (google/flan-t5-base).
+      </div>
+
       <div>
         <h1 className="text-2xl font-bold text-white">Governance &amp; LLM Explainability</h1>
         <p className="text-slate-400 text-sm mt-1">Audit trail · Open-source LLM narratives · Bias tracking · Model explainability</p>

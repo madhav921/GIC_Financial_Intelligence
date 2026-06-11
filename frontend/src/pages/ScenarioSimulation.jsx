@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, ReferenceLine,
+  ResponsiveContainer, ReferenceLine, Cell,
 } from 'recharts';
 import KPICard from '../components/Charts/KPICard';
 import Badge from '../components/common/Badge';
@@ -76,6 +76,14 @@ export default function ScenarioSimulation() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
+      {/* Backend connect banner */}
+      <div className="rounded-lg px-4 py-3 text-xs text-slate-400 border border-slate-700 flex items-center gap-2" style={{ backgroundColor: '#1e293b' }}>
+        <span className="text-blue-400">ℹ️</span>
+        Connect backend:{' '}
+        <code className="text-blue-300 font-mono">uvicorn src.api.app:app --port 8000</code>
+        {' '}— simulation calls real Monte Carlo engine when connected.
+      </div>
+
       <div>
         <h1 className="text-2xl font-bold text-white">Scenario Simulation</h1>
         <p className="text-slate-400 text-sm mt-1">Monte Carlo · 10,000 simulations · Fat-tail distributions (Student's t)</p>
@@ -226,7 +234,7 @@ export default function ScenarioSimulation() {
             />
             <ReferenceLine y={1401} stroke="#64748b" strokeDasharray="4 2" label={{ value: 'Base', fill: '#64748b', fontSize: 11 }} />
             <Bar dataKey="ebit" radius={[4, 4, 0, 0]}>
-              {compareData.map((d, i) => <Bar key={i} fill={d.fill} />)}
+              {compareData.map((d, i) => <Cell key={i} fill={d.fill} />)}
             </Bar>
           </BarChart>
         </ResponsiveContainer>

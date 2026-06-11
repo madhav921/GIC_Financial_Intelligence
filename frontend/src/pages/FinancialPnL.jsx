@@ -45,6 +45,14 @@ export default function FinancialPnL() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
+      {/* Backend connect banner */}
+      <div className="rounded-lg px-4 py-3 text-xs text-slate-400 border border-slate-700 flex items-center gap-2" style={{ backgroundColor: '#1e293b' }}>
+        <span className="text-blue-400">ℹ️</span>
+        Connect backend:{' '}
+        <code className="text-blue-300 font-mono">uvicorn src.api.app:app --port 8000</code>
+        {' '}— showing mock data while offline.
+      </div>
+
       <div>
         <h1 className="text-2xl font-bold text-white">Financial P&amp;L</h1>
         <p className="text-slate-400 text-sm mt-1">Waterfall · Segment breakdown · Commodity cost sensitivity</p>
@@ -60,11 +68,7 @@ export default function FinancialPnL() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Waterfall */}
-        <div className="rounded-xl p-6 border border-slate-700" style={{ backgroundColor: '#1e293b' }}>
-          <h2 className="text-lg font-semibold text-slate-100 mb-1">P&amp;L Waterfall (£M)</h2>
-          <p className="text-slate-500 text-xs mb-4">Revenue → COGS → Gross Margin → Fixed Costs → EBIT</p>
-          <WaterfallChart data={WATERFALL} />
-        </div>
+        <WaterfallChart data={WATERFALL} />
 
         {/* Monthly EBIT */}
         <div className="rounded-xl p-6 border border-slate-700" style={{ backgroundColor: '#1e293b' }}>
