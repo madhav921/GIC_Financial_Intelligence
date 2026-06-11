@@ -11,7 +11,7 @@ import pandas as pd
 from loguru import logger
 
 from src.config import get_project_root
-from src.data.synthetic_generator import SyntheticDataGenerator
+from src.data import synthetic_generator as sg
 from src.data.feature_engineering import prepare_commodity_features
 
 
@@ -29,7 +29,6 @@ class DataLayerController:
 
     def __init__(self):
         self.root = get_project_root()
-        self._generator = SyntheticDataGenerator()
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -80,14 +79,14 @@ class DataLayerController:
         )
 
     def generate_synthetic_data(self) -> dict[str, pd.DataFrame]:
-        """Generate all synthetic datasets using Ornstein-Uhlenbeck process."""
+        """Generate all synthetic datasets using the Ornstein-Uhlenbeck generator."""
         logger.info("Layer 1: Generating synthetic data (O-U process)")
         return {
-            "commodity_prices": self._generator.generate_commodity_prices(),
-            "macro_indicators": self._generator.generate_macro_indicators(),
-            "sales_data": self._generator.generate_sales_data(),
-            "production_inventory": self._generator.generate_production_inventory(),
-            "bom_data": self._generator.generate_bom_data(),
+            "commodity_prices": sg.generate_commodity_prices(),
+            "macro_indicators": sg.generate_macro_indicators(),
+            "sales_data": sg.generate_sales_data(),
+            "production_inventory": sg.generate_production_inventory(),
+            "bom_data": sg.generate_bom_data(),
         }
 
     def build_feature_matrix(

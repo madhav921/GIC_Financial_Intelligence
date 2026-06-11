@@ -110,10 +110,11 @@ class SimulationLayerController:
         Returns: {optimal_ratio, expected_savings, var_reduction}
         """
         logger.info(f"Layer 4: Optimizing hedge for {commodity}")
-        return self._hedge_optimizer.optimize(
-            commodity=commodity,
-            exposure_units=exposure_units,
-            spot_price=spot_price,
+        result = self._hedge_optimizer.optimize(
             forecast_mean=forecast_mean,
             forecast_std=forecast_std,
+            futures_price=spot_price,
+            exposure_units=exposure_units,
         )
+        result["commodity"] = commodity
+        return result

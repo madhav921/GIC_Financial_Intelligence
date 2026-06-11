@@ -140,11 +140,27 @@ class GovernanceLayerController:
         """
         Track forecast bias for a commodity.
         >5% bias → alert | >10% bias → governance escalation.
-        Returns: {bias_pct, mae, mape, alert_triggered, escalation_required}
+        Returns: {bias_pct, direction, trend, alert_triggered, escalation_required}
         """
-        result = self._bias_tracker.compute_bias(commodity, actual_prices, forecast_prices)
+        import pandas as pd
 
-        if result.get("escalation_required"):
+        report = self._bias_tracker.compute_bias(
+            actuals=pd.Series(actual_prices),
+            forecasts=pd.Series(forecast_prices),
+            model_name="ensemble",
+            commodity=commodity,
+        )
+        bias_pct = abs(report.mean_bias_pct)
+        result = {
+            "commodity": commodity,
+            "bias_pct": report.mean_bias_pct,
+            "direction": report.bias_direction,
+            "trend": report.recent_bias_trend,
+            "alert_triggered": bool(report.is_alert),
+            "escalation_required": bias_pct > 10.0,
+        }
+
+        if result["escalation_required"]:
             alert_narrative = self._llm.explain_alert(
                 commodity=commodity,
                 alert_type="bias_escalation",
@@ -173,21 +189,42 @@ class GovernanceLayerController:
     ) -> dict:
         """
         Generate feature importance explanation for a commodity forecast.
-        Returns: {commodity, top_drivers, narrative, forecast_value, trend}
+        Returns: {commodity, top_drivers, narrative, forecast_value, llm_narrative}
         """
-        explanation = self._explainability.explain(commodity, forecast_result)
+        import pandas as pd
+
+        fc = forecast_result.point_forecast or [0.0]
+        forecast_value = float(fc[-1])
+        current_value = float(fc[0]) if fc[0] else forecast_value
+
+        # Build a feature_importance DataFrame from the forecast result
+        fi = forecast_result.feature_importance or {}
+        if isinstance(fi, dict) and fi:
+            fi_df = pd.DataFrame(
+                {"feature": list(fi.keys()), "importance": list(fi.values())}
+            )
+        else:
+            fi_df = pd.DataFrame(columns=["feature", "importance"])
+
+        try:
+            explanation = self._explainability.explain_commodity_forecast(
+                commodity=commodity,
+                forecast_value=forecast_value,
+                current_value=current_value,
+                feature_importance=fi_df,
+            )
+            top_drivers = explanation.top_drivers
+            narrative = explanation.narrative
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(f"Layer 5: explainability failed for {commodity}: {exc}")
+            top_drivers, narrative = [], ""
+
         return {
             "commodity": commodity,
-            "top_drivers": (
-                explanation.top_drivers if hasattr(explanation, "top_drivers") else []
-            ),
-            "narrative": (
-                explanation.narrative if hasattr(explanation, "narrative") else ""
-            ),
+            "top_drivers": top_drivers,
+            "narrative": narrative,
             "llm_narrative": self.generate_narrative(forecast_result),
-            "forecast_value": (
-                explanation.forecast_value if hasattr(explanation, "forecast_value") else 0
-            ),
+            "forecast_value": forecast_value,
         }
 
     # ── LLM Health ────────────────────────────────────────────────────────────

@@ -39,6 +39,22 @@ class AuditTrail:
 
         return entry_id
 
+    def log_event(
+        self,
+        event_type: str,
+        details: dict[str, Any] | None = None,
+        user: str = "system",
+    ) -> str:
+        """Generic append-only event logger used by the layered controllers."""
+        entry = {"event_type": event_type, "user": user}
+        if details:
+            entry.update(details)
+        return self._write_entry(entry)
+
+    def get_recent_events(self, limit: int = 100) -> list[dict]:
+        """Return the most recent audit entries (alias of get_entries)."""
+        return self.get_entries(limit=limit)
+
     def log_forecast(
         self,
         model_name: str,
