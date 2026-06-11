@@ -15,7 +15,7 @@
 - **Uncertainty:** parametric 80% CI **calibrated to 79%** (measured), now augmented with **split-conformal + Adaptive Conformal Inference** (`src/models/conformal.py`).
 - **Risk:** 10,000-run Monte Carlo, fat-tailed (Student-t df=5) commodity shocks; **VaR(95%) ≈ £705M**, CVaR(95%) ≈ −£452M; EBIT 80% CI **£1,231M–£1,571M** (measured).
 - **Financial model:** driver-based P&L (Revenue = vol×price×(1−incentive); COGS = BOM-weighted commodity index; warranty/depr/tax), validated to within ~1% on sensitivity checks.
-- **This iteration added:** RBAC auth layer; actionable **Insight Engine** (prescriptive, £-quantified); **Plan-to-Perform Variance Bridge** (Volume→Price/Mix→Commodity→FX→Warranty→Other); **warranty analytics**; **real-time WebSocket market feed**; SOTA modules — **split-conformal**, **SHAP attribution**, **regime detection (Hurst)**, anomaly detection (z-score/IQR), backtesting harness, hedge optimizer.
+- **This iteration added:** RBAC auth layer; actionable **Insight Engine** (prescriptive, £-quantified); **Plan-to-Perform Variance Bridge** (Volume→Price/Mix→Commodity→FX→Warranty→Other); **warranty analytics**; **real-time WebSocket market feed**; SOTA modules — **split-conformal + ACI**, **SHAP attribution**, **CUSUM + BOCPD change-point detection**, **gradient-boosted quantile regression**, **regime detection (Hurst)**, anomaly detection (z-score/IQR), backtesting harness, hedge optimizer.
 
 ---
 
@@ -60,11 +60,11 @@ Scores: **GIC** = current state *after this iteration*. **Commercial SOTA** = be
 | G4 | **Operational data is synthetic, not ERP-connected** | P&L uses JLR-calibrated synthetic operations; SAP S/4HANA + data-lake connectors are stubs. No real GL actuals. | High |
 | G5 | **No automated retraining / MLOps** | Retraining is manual; no scheduler, model monitoring, drift-triggered refit, or CI/CD for models. | Med–High |
 | G6 | **Limited backtest horizon & breadth** | Single 2024 hold-out year; no multi-regime, multi-year rolling backtest across crises; calibration validated on one window. | Med |
-| G7 | **Change-point detection is shallow** | "Change-point detection" is rolling z-score / IQR anomaly flags — **not** true BOCPD/CUSUM; no automatic break→reforecast trigger. | Med |
+| G7 | **Change-point detection** ✅ *largely closed this iteration* | Now ships true **CUSUM + simplified Gaussian BOCPD** (`src/models/change_point.py`) alongside the z-score/IQR anomaly flags. Remaining: auto-wire break events → reforecast trigger in the pipeline. | Med → Low |
 | G8 | **3 commodities fully synthetic** | Rhodium, Polypropylene, ABS Resin via O-U process (no free exchange instrument); no factor-model anchor. | Med |
 | G9 | **Real-time feed partly synthetic** | WebSocket tape applies a mean-reverting random walk when live data absent; not a hardened market-data subscription. | Med |
 | G10 | **Enterprise data integration shallow** | No certified ERP/CRM/data-warehouse connectors, no SSO at enterprise grade, no multi-tenant. | High (for productionization) |
-| G11 | **Quantile forecasting not native** | VaR/CVaR fed from symmetric conformal band + MC, not native asymmetric conditional quantiles (no quantile-XGBoost/CQR). | Med |
+| G11 | **Quantile forecasting** ✅ *largely closed this iteration* | Now ships **gradient-boosted pinball quantile regression** (`src/models/quantile_forecast.py`, monotone post-sort prevents crossing). Remaining: wire quantile fits into the VaR/CVaR path and add full Conformalized Quantile Regression (CQR). | Med → Low |
 | G12 | **LLM narrative is template-based** | Explainability narratives are templated, not LLM/RAG-grounded; no conversational what-if. | Low–Med |
 
 ---
@@ -83,8 +83,8 @@ Effort: **S** (≤1 wk), **M** (2–4 wk), **L** (1–2 mo). Impact: indicative.
 | Variance | Plan→Actual EBIT Variance Bridge (Vol→Price→Commodity→FX→Warranty→Other) | M | Standards-compliant attribution of EBIT gap | ✅ Closed-this-iteration (`variance_bridge.py`) |
 | Real-time | WebSocket live market tape + REST snapshot | M | Sub-second live commodity→EBIT context | ✅ Closed-this-iteration (`api/routes/realtime.py`) |
 | Governance | RBAC auth layer (Admin/User permission matrix) | M | Access control + audit foundation for prod | ✅ Closed-this-iteration (`auth/`) |
-| G7 Change-point | Add true **CUSUM + BOCPD** module → emit break events → auto-trigger reforecast | M | Earlier regime-break action; less stale forecasts | ⏳ Open (today: z-score/IQR only) |
-| G11 Quantiles | Add **quantile-XGBoost + Conformalized Quantile Regression (CQR)** feeding VaR/CVaR | M | Sharper, asymmetric, honest tail risk into £705M VaR | ⏳ Open |
+| G7 Change-point | True **CUSUM + BOCPD** module (`change_point.py`); remaining: emit break events → auto-trigger reforecast | S (remaining) | Earlier regime-break action; less stale forecasts | ✅ Module shipped; wiring ⏳ |
+| G11 Quantiles | **Quantile-XGBoost** shipped (`quantile_forecast.py`); remaining: feed VaR/CVaR + full CQR | S (remaining) | Sharper, asymmetric, honest tail risk into £705M VaR | ✅ Module shipped; wiring ⏳ |
 
 ### NEXT (this quarter — accuracy, causality, conversational UX)
 
@@ -153,8 +153,8 @@ The additions this iteration moved five dimensions. Deltas vs the pre-iteration 
 
 **Implementation caveats (honesty about what is *not* yet built):**
 
-- The platform's **"change-point detection" is currently rolling z-score / IQR anomaly detection** (`src/insights/anomaly_detector.py`), **not** Bayesian Online Change-Point Detection or CUSUM. References to BOCPD/CUSUM in scope language describe *intended* SOTA targets (see backlog G7), not shipped code.
-- **Quantile regression** is not yet a native module; uncertainty today comes from **split-conformal + ACI** (`conformal.py`) and Monte-Carlo, not conditional-quantile fits (see backlog G11).
+- **Change-point detection** now ships true **CUSUM + simplified Gaussian BOCPD** (`src/models/change_point.py`) in addition to the z-score/IQR anomaly flags (`src/insights/anomaly_detector.py`). The remaining open item is wiring break events to auto-trigger a reforecast (backlog G7).
+- **Quantile regression** now ships as a native **gradient-boosted pinball** module (`src/models/quantile_forecast.py`); the remaining open item is feeding those quantiles into the VaR/CVaR path and adding full Conformalized Quantile Regression (backlog G11). Uncertainty also comes from **split-conformal + ACI** (`conformal.py`) and Monte-Carlo.
 - **Regime detection** is **Hurst-exponent (R/S)** based adaptive weighting, not Markov regime-switching.
 - The **real-time feed** seeds from synthetic CSV with a mean-reverting random walk when live data is absent — live-capable, but not a hardened market-data subscription.
 - **Operational/P&L inputs are JLR-calibrated synthetic data**, not connected to a real SAP general ledger; financial-model *equations* are validated, the *operational inputs* are simulated.
