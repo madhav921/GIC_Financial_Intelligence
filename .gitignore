@@ -56,3 +56,5 @@ logs/
 Thumbs.db
 
 docs/archive/
+# Auth layer local user store
+auth/users.json
