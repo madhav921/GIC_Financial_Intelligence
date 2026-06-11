@@ -16,6 +16,18 @@ from src.api.routes import forecast, health, pnl, simulation
 from src.config import get_settings
 from src.logging_setup import setup_logging
 
+# Optional layers — wired defensively so the core API still boots if a
+# layer's dependencies are unavailable in a given environment.
+try:
+    from src.api.routes.auth import auth_router
+except Exception:  # pragma: no cover - defensive import
+    auth_router = None
+
+try:
+    from src.api.routes.insights import insights_router
+except Exception:  # pragma: no cover - defensive import
+    insights_router = None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -51,6 +63,14 @@ def create_app() -> FastAPI:
     app.include_router(forecast.router)
     app.include_router(simulation.router)
     app.include_router(pnl.router)
+
+    # Auth (RBAC) layer — independent, additive
+    if auth_router is not None:
+        app.include_router(auth_router)
+
+    # Actionable-intelligence layer — insights, variance bridge, warranty
+    if insights_router is not None:
+        app.include_router(insights_router)
 
     return app
 
