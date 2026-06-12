@@ -195,8 +195,7 @@ export default function useRealtime() {
         }
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, []); // eslint-disable-line
 
   return { snapshot, connected, source };
 }
