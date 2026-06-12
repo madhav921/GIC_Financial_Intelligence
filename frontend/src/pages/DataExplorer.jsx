@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import Badge from '../components/common/Badge';
+import { useAuth } from '../auth/AuthContext';
+import { can, PERMISSIONS } from '../auth/permissions';
 
 const DATASETS = [
   {
@@ -115,12 +117,72 @@ const DATASETS = [
 const typeColor = { real: 'green', mixed: 'yellow', synthetic: 'blue' };
 const typeLabel = { real: 'Real', mixed: 'Real + Synthetic', synthetic: 'Synthetic' };
 
+// Lightweight per-dataset schema + aggregated stats (always visible) and a
+// small raw-row preview that is gated behind view_raw_data (Admin).
+const SCHEMAS = {
+  'market_commodities.parquet': [
+    { col: 'date', dtype: 'datetime64', nulls: 0.0 },
+    { col: 'copper', dtype: 'float64', nulls: 1.1 },
+    { col: 'steel', dtype: 'float64', nulls: 1.4 },
+    { col: 'aluminum', dtype: 'float64', nulls: 0.9 },
+  ],
+  'fred_macro.parquet': [
+    { col: 'date', dtype: 'datetime64', nulls: 0.0 },
+    { col: 'FEDFUNDS', dtype: 'float64', nulls: 0.0 },
+    { col: 'CPIAUCSL', dtype: 'float64', nulls: 1.2 },
+    { col: 'UNRATE', dtype: 'float64', nulls: 0.4 },
+  ],
+};
+const DEFAULT_SCHEMA = [
+  { col: 'date', dtype: 'datetime64', nulls: 0.0 },
+  { col: 'value', dtype: 'float64', nulls: 1.0 },
+  { col: 'category', dtype: 'object', nulls: 0.0 },
+];
+
+const RAW_PREVIEW = {
+  'market_commodities.parquet': {
+    cols: ['date', 'copper', 'steel', 'aluminum'],
+    rows: [
+      ['2026-06-01', '8512.40', '648.20', '2204.1'],
+      ['2026-05-01', '8488.10', '651.05', '2189.7'],
+      ['2026-04-01', '8401.55', '643.80', '2176.3'],
+      ['2026-03-01', '8377.20', '639.42', '2160.9'],
+      ['2026-02-01', '8290.00', '634.10', '2148.5'],
+    ],
+  },
+  'fred_macro.parquet': {
+    cols: ['date', 'FEDFUNDS', 'CPIAUCSL', 'UNRATE'],
+    rows: [
+      ['2026-06-01', '5.375', '312.4', '3.7'],
+      ['2026-05-01', '5.375', '311.8', '3.8'],
+      ['2026-04-01', '5.375', '311.1', '3.7'],
+      ['2026-03-01', '5.500', '310.5', '3.9'],
+      ['2026-02-01', '5.500', '309.9', '3.8'],
+    ],
+  },
+};
+const DEFAULT_RAW = {
+  cols: ['date', 'value', 'category'],
+  rows: [
+    ['2026-06-01', '128.4', 'A'],
+    ['2026-05-01', '126.9', 'A'],
+    ['2026-04-01', '125.1', 'B'],
+    ['2026-03-01', '124.7', 'B'],
+    ['2026-02-01', '123.2', 'A'],
+  ],
+};
+
 export default function DataExplorer() {
+  const { user } = useAuth();
+  const canRaw = can(user, PERMISSIONS.VIEW_RAW_DATA);
+
   const [selected, setSelected] = useState(null);
   const [filter, setFilter] = useState('all');
 
   const filtered = filter === 'all' ? DATASETS : DATASETS.filter(d => d.type === filter);
   const sel = DATASETS.find(d => d.name === selected);
+  const schema = sel ? (SCHEMAS[sel.name] || DEFAULT_SCHEMA) : [];
+  const raw = sel ? (RAW_PREVIEW[sel.name] || DEFAULT_RAW) : null;
 
   const totalRows = DATASETS.reduce((s, d) => s + d.rows, 0);
   const realCount = DATASETS.filter(d => d.type === 'real').length;
@@ -137,9 +199,14 @@ export default function DataExplorer() {
         <code className="text-blue-300 font-mono">python scripts/fetch_data.py</code>
       </div>
 
-      <div>
-        <h1 className="text-2xl font-bold text-white">Data Explorer</h1>
-        <p className="text-slate-400 text-sm mt-1">Dataset catalog · Data quality report · Source tracing</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Data Explorer</h1>
+          <p className="text-slate-400 text-sm mt-1">Dataset catalog · Schema · Data quality report · Source tracing</p>
+        </div>
+        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${canRaw ? 'border-emerald-700 text-emerald-300 bg-emerald-900/20' : 'border-slate-600 text-slate-400 bg-slate-700/30'}`}>
+          {canRaw ? 'Raw data access' : '🔒 Aggregated view (raw data is Admin-only)'}
+        </span>
       </div>
 
       {/* Summary cards */}
@@ -241,15 +308,89 @@ export default function DataExplorer() {
                   </div>
                 ))}
               </div>
+
+              {/* Data quality bar (aggregated — always visible) */}
+              <div className="mt-4">
+                <div className="flex justify-between text-xs text-slate-400 mb-1">
+                  <span>Completeness</span>
+                  <span className={sel.nullPct > 5 ? 'text-red-400' : sel.nullPct > 1 ? 'text-yellow-400' : 'text-green-400'}>
+                    {(100 - sel.nullPct).toFixed(1)}%
+                  </span>
+                </div>
+                <div className="h-1.5 rounded-full bg-slate-700">
+                  <div className="h-1.5 rounded-full" style={{ width: `${100 - sel.nullPct}%`, backgroundColor: sel.nullPct > 5 ? '#ef4444' : sel.nullPct > 1 ? '#f59e0b' : '#22c55e' }} />
+                </div>
+              </div>
+
+              {/* Schema (aggregated — always visible) */}
+              <div className="mt-4">
+                <p className="text-slate-400 text-xs mb-2">Schema</p>
+                <div className="space-y-1">
+                  {schema.map((s) => (
+                    <div key={s.col} className="flex items-center justify-between text-xs">
+                      <code className="text-slate-200">{s.col}</code>
+                      <span className="flex items-center gap-2">
+                        <span className="text-slate-500 font-mono">{s.dtype}</span>
+                        <span className={s.nulls > 1 ? 'text-yellow-400' : 'text-green-400'}>{s.nulls}% null</span>
+                      </span>
+                    </div>
+                  ))}
+                  {schema.length < sel.cols && (
+                    <p className="text-slate-600 text-[11px] mt-1">+ {sel.cols - schema.length} more column(s)</p>
+                  )}
+                </div>
+              </div>
             </>
           ) : (
             <div className="flex flex-col items-center justify-center h-48 text-slate-500 text-sm text-center">
               <p className="text-2xl mb-3">🗄️</p>
-              <p>Click a dataset row to see details</p>
+              <p>Click a dataset row to see details, schema and quality</p>
             </div>
           )}
         </div>
       </div>
+
+      {/* Raw data preview — gated behind view_raw_data (Admin) */}
+      {sel && (
+        <div className="rounded-xl p-6 border border-slate-700" style={{ backgroundColor: '#1e293b' }}>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-100">Raw Data Preview — <span className="font-mono text-base">{sel.name}</span></h2>
+              <p className="text-slate-500 text-xs mt-1">First rows of the underlying file</p>
+            </div>
+            <Badge label={canRaw ? 'Admin access' : 'Admin only'} color={canRaw ? 'green' : 'slate'} />
+          </div>
+
+          {canRaw ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-slate-400 border-b border-slate-700">
+                    {raw.cols.map((c) => <th key={c} className="text-left px-3 py-2 font-mono">{c}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {raw.rows.map((row, i) => (
+                    <tr key={i} className="border-b border-slate-800 hover:bg-slate-800/40">
+                      {row.map((cell, j) => <td key={j} className="px-3 py-1.5 font-mono text-slate-200">{cell}</td>)}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="text-slate-600 text-[11px] mt-2">Showing {raw.rows.length} of {sel.rows.toLocaleString()} rows.</p>
+            </div>
+          ) : (
+            <div className="rounded-lg p-8 border border-dashed border-slate-600 text-center" style={{ backgroundColor: '#0f172a' }}>
+              <p className="text-3xl mb-2">🔒</p>
+              <p className="text-slate-300 text-sm font-medium">Raw data is Admin-only</p>
+              <p className="text-slate-500 text-xs mt-1 max-w-md mx-auto">
+                Your role can view aggregated statistics, schema and data-quality metrics. Full row-level data
+                requires the <code className="text-blue-400">view_raw_data</code> permission. Sign in as Administrator to preview raw rows.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Scripts Reference */}
       <div className="rounded-xl p-6 border border-slate-700" style={{ backgroundColor: '#1e293b' }}>

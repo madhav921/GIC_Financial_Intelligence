@@ -1,5 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import Badge from '../components/common/Badge';
+import Sparkline from '../components/Charts/Sparkline';
+import LockedButton from '../components/common/LockedButton';
+import { PERMISSIONS } from '../auth/permissions';
 
 const MARKET_DATA = {
   indices: [
@@ -34,6 +37,21 @@ const MARKET_DATA = {
   ],
 };
 
+// Stable 14-point sparkline series that ends consistent with the daily change.
+function sparkSeries(seed, change) {
+  let s = seed % 2147483647;
+  if (s <= 0) s += 2147483646;
+  const rnd = () => ((s = (s * 16807) % 2147483647) - 1) / 2147483646;
+  const out = [];
+  let v = 100;
+  for (let i = 0; i < 13; i++) {
+    v += (rnd() - 0.5) * 3;
+    out.push(v);
+  }
+  out.push(v + change); // last move reflects the reported change direction
+  return out;
+}
+
 function ChangeCell({ change }) {
   const color = change > 0 ? 'text-green-400' : change < 0 ? 'text-red-400' : 'text-slate-400';
   const arrow = change > 0 ? '▲' : change < 0 ? '▼' : '—';
@@ -56,6 +74,11 @@ function SectionCard({ title, badge, children }) {
   );
 }
 
+function TileSpark({ seed, change }) {
+  const series = useMemo(() => sparkSeries(seed, change), [seed, change]);
+  return <Sparkline data={series} color={change >= 0 ? '#22c55e' : '#ef4444'} width={88} height={26} />;
+}
+
 export default function MarketMonitor() {
   const [lastUpdated, setLastUpdated] = useState(new Date());
 
@@ -75,33 +98,45 @@ export default function MarketMonitor() {
         <code className="text-blue-300 font-mono">python scripts/fetch_data.py</code>
       </div>
 
-      <div className="flex items-start justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-white">Market Monitor</h1>
           <p className="text-slate-400 text-sm mt-1">Live indices · FX rates · Crypto · FRED macro indicators</p>
         </div>
-        <div className="text-right text-xs text-slate-500">
-          <div className="flex items-center gap-1.5 justify-end">
-            <span className="w-2 h-2 rounded-full bg-green-500 inline-block animate-pulse" />
-            <span className="text-green-400">Live</span>
+        <div className="flex items-center gap-4">
+          <div className="text-right text-xs text-slate-500">
+            <div className="flex items-center gap-1.5 justify-end">
+              <span className="w-2 h-2 rounded-full bg-green-500 inline-block animate-pulse" />
+              <span className="text-green-400">Live</span>
+            </div>
+            <p className="mt-0.5">Updated {lastUpdated.toLocaleTimeString()}</p>
           </div>
-          <p className="mt-0.5">Updated {lastUpdated.toLocaleTimeString()}</p>
+          <LockedButton
+            permission={PERMISSIONS.TRIGGER_DATA_FETCH}
+            onClick={() => setLastUpdated(new Date())}
+            lockedLabel="Refresh live data"
+            lockHint="Fetching live market data requires Administrator access"
+            className="text-sm"
+          >
+            🔄 Refresh live data
+          </LockedButton>
         </div>
       </div>
 
       {/* Data source note */}
-      <div className="rounded-lg px-4 py-2 text-xs text-slate-400 border border-slate-700 flex flex-wrap gap-3" style={{ backgroundColor: '#1e293b' }}>
-        <span>Sources: <Badge label="Yahoo Finance" color="blue" /></span>
-        <span><Badge label="FRED" color="green" /></span>
-        <span><Badge label="Binance/CCXT" color="yellow" /></span>
-        <span className="text-slate-500 ml-auto">Run <code className="text-blue-400">python scripts/fetch_data.py</code> to refresh</span>
+      <div className="rounded-lg px-4 py-2 text-xs text-slate-400 border border-slate-700 flex flex-wrap items-center gap-3" style={{ backgroundColor: '#1e293b' }}>
+        <span>Sources:</span>
+        <Badge label="Yahoo Finance" color="blue" />
+        <Badge label="FRED" color="green" />
+        <Badge label="Binance/CCXT" color="yellow" />
+        <span className="text-slate-500 ml-auto">Admins can trigger a live fetch; viewers see the latest cached snapshot.</span>
       </div>
 
       {/* Market Indices */}
       <SectionCard title="Market Indices" badge="Yahoo Finance">
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
           {MARKET_DATA.indices.map((idx, i) => (
-            <div key={i} className="rounded-lg p-3 border border-slate-700" style={{ backgroundColor: '#0f172a' }}>
+            <div key={i} className="rounded-lg p-3 border border-slate-700 transition-colors hover:border-slate-500" style={{ backgroundColor: '#0f172a' }}>
               <div className="flex justify-between items-start">
                 <div>
                   <p className="text-xs text-slate-400">{idx.ticker}</p>
@@ -109,9 +144,12 @@ export default function MarketMonitor() {
                 </div>
                 <ChangeCell change={idx.change} />
               </div>
-              <p className="text-xl font-bold text-white mt-1">
-                {idx.currency}{idx.value.toLocaleString('en-GB', { minimumFractionDigits: 2 })}
-              </p>
+              <div className="flex items-end justify-between mt-1">
+                <p className="text-xl font-bold text-white">
+                  {idx.currency}{idx.value.toLocaleString('en-GB', { minimumFractionDigits: 2 })}
+                </p>
+                <TileSpark seed={idx.ticker.charCodeAt(0) * 131 + i} change={idx.change} />
+              </div>
             </div>
           ))}
         </div>
@@ -125,6 +163,7 @@ export default function MarketMonitor() {
               <tr className="text-slate-400 border-b border-slate-700 text-xs">
                 <th className="text-left pb-2">Pair</th>
                 <th className="text-right pb-2">Rate</th>
+                <th className="text-center pb-2">14d</th>
                 <th className="text-right pb-2">24h Change</th>
               </tr>
             </thead>
@@ -132,12 +171,11 @@ export default function MarketMonitor() {
               {MARKET_DATA.fx.map((fx, i) => (
                 <tr key={i} className="border-b border-slate-800">
                   <td className="py-2 text-slate-200 font-medium">{fx.pair}</td>
-                  <td className="py-2 text-right text-white font-mono">
-                    {fx.rate.toFixed(4)}
+                  <td className="py-2 text-right text-white font-mono">{fx.rate.toFixed(4)}</td>
+                  <td className="py-2">
+                    <div className="flex justify-center"><TileSpark seed={fx.pair.charCodeAt(4) * 71 + i} change={fx.change} /></div>
                   </td>
-                  <td className="py-2 text-right">
-                    <ChangeCell change={fx.change} />
-                  </td>
+                  <td className="py-2 text-right"><ChangeCell change={fx.change} /></td>
                 </tr>
               ))}
             </tbody>
@@ -151,6 +189,7 @@ export default function MarketMonitor() {
               <tr className="text-slate-400 border-b border-slate-700 text-xs">
                 <th className="text-left pb-2">Indicator</th>
                 <th className="text-right pb-2">Value</th>
+                <th className="text-right pb-2">Source</th>
                 <th className="text-right pb-2">Series</th>
               </tr>
             </thead>
@@ -160,8 +199,9 @@ export default function MarketMonitor() {
                   <td className="py-2 text-slate-200">{m.indicator}</td>
                   <td className="py-2 text-right text-white font-bold font-mono">{m.value}</td>
                   <td className="py-2 text-right">
-                    <code className="text-xs text-blue-400">{m.series}</code>
+                    <Badge label={m.source} color={m.source === 'FRED' ? 'green' : 'blue'} />
                   </td>
+                  <td className="py-2 text-right"><code className="text-xs text-blue-400">{m.series}</code></td>
                 </tr>
               ))}
             </tbody>
@@ -173,7 +213,7 @@ export default function MarketMonitor() {
       <SectionCard title="Cryptocurrency" badge="Binance/CCXT">
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
           {MARKET_DATA.crypto.map((c, i) => (
-            <div key={i} className="rounded-lg p-3 border border-slate-700" style={{ backgroundColor: '#0f172a' }}>
+            <div key={i} className="rounded-lg p-3 border border-slate-700 transition-colors hover:border-slate-500" style={{ backgroundColor: '#0f172a' }}>
               <div className="flex justify-between items-start">
                 <div>
                   <p className="text-xs text-slate-400 font-mono">{c.symbol}/USDT</p>
@@ -181,9 +221,12 @@ export default function MarketMonitor() {
                 </div>
                 <ChangeCell change={c.change} />
               </div>
-              <p className="text-xl font-bold text-white mt-1">
-                ${c.price < 10 ? c.price.toFixed(4) : c.price.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-              </p>
+              <div className="flex items-end justify-between mt-1">
+                <p className="text-xl font-bold text-white">
+                  ${c.price < 10 ? c.price.toFixed(4) : c.price.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                </p>
+                <TileSpark seed={c.symbol.charCodeAt(0) * 97 + i} change={c.change} />
+              </div>
             </div>
           ))}
         </div>

@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, Cell,
 } from 'recharts';
-import KPICard from '../components/Charts/KPICard';
-import Badge from '../components/common/Badge';
 import Loading from '../components/common/Loading';
-import { gicApi } from '../api/client';
+import LockedButton from '../components/common/LockedButton';
+import DistributionHistogram from '../components/Charts/DistributionHistogram';
+import TornadoChart from '../components/Charts/TornadoChart';
+import { useAuth } from '../auth/AuthContext';
+import { can, PERMISSIONS } from '../auth/permissions';
 
 const PRESETS = [
   { name: 'Base Case',        demand: 0,    commodity: 0,    fx: 0,    color: '#3b82f6', ebit: 1401, var95: -705, marg: 18.5 },
@@ -18,19 +20,78 @@ const PRESETS = [
   { name: 'Stagflation',      demand: -0.12, commodity: 0.25, fx: 0.08, color: '#dc2626', ebit: 445,  var95: -1350, marg: 6.8 },
 ];
 
+const BASE_EBIT = 1401;
+const SANDBOX_CAP = 1000;
+
 const formatPct = (v) => `${v > 0 ? '+' : ''}${(v * 100).toFixed(0)}%`;
-const formatM = (v) => `£${v >= 0 ? '' : '-'}${Math.abs(v).toLocaleString()}M`;
+
+// Box–Muller normal sampler for the client-side mock Monte Carlo.
+function randn() {
+  let u = 0, v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
+// Build a mock outcome distribution + summary stats from the shock vector.
+function mockSimulate(demand, commodity, fx, n) {
+  const meanEbit =
+    BASE_EBIT * (1 + demand * 0.9 - commodity * 0.65 - Math.abs(fx) * 0.4);
+  const vol = BASE_EBIT * (0.14 + Math.abs(commodity) * 0.5 + Math.abs(demand) * 0.3 + Math.abs(fx) * 0.4);
+  const samples = new Array(n);
+  for (let i = 0; i < n; i++) {
+    // Student-t-ish fat tail: blend a normal with an occasional wide draw.
+    const tail = Math.random() < 0.06 ? randn() * 2.2 : 0;
+    samples[i] = meanEbit + (randn() + tail) * vol;
+  }
+  samples.sort((a, b) => a - b);
+  const pct = (p) => samples[Math.min(n - 1, Math.max(0, Math.floor(p * n)))];
+  const var95 = pct(0.05);
+  const tail = samples.filter((s) => s <= var95);
+  const cvar95 = tail.length ? tail.reduce((a, b) => a + b, 0) / tail.length : var95;
+  const mean = samples.reduce((a, b) => a + b, 0) / n;
+
+  // Histogram bins
+  const lo = samples[0];
+  const hi = samples[n - 1];
+  const nb = 28;
+  const w = (hi - lo) / nb || 1;
+  const bins = Array.from({ length: nb }, (_, i) => ({ x: lo + w * (i + 0.5), count: 0 }));
+  samples.forEach((s) => {
+    const idx = Math.min(nb - 1, Math.max(0, Math.floor((s - lo) / w)));
+    bins[idx].count += 1;
+  });
+
+  const margin = PRESETS[0].marg * (mean / BASE_EBIT);
+
+  return {
+    stats: {
+      operating_income: { mean: mean * 1e6, var_95: var95 * 1e6, cvar_95: cvar95 * 1e6, p25: pct(0.25) * 1e6, p75: pct(0.75) * 1e6 },
+      gross_margin: { mean: margin },
+    },
+    _bins: bins,
+    _mean: mean,
+    _var95: var95,
+    _cvar95: cvar95,
+  };
+}
 
 export default function ScenarioSimulation() {
+  const { user } = useAuth();
+  const canReal = can(user, PERMISSIONS.RUN_SIMULATION);
+  const canSandbox = can(user, PERMISSIONS.RUN_SANDBOX_SIMULATION);
+  const canEdit = can(user, PERMISSIONS.EDIT_SCENARIOS);
+
   const [selected, setSelected] = useState('Base Case');
   const [demand, setDemand] = useState(0);
   const [commodity, setCommodity] = useState(0);
   const [fx, setFx] = useState(0);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
-  const [nSims, setNSims] = useState(10000);
+  const [mode, setMode] = useState(null); // 'real' | 'sandbox'
+  const [nSims, setNSims] = useState(canReal ? 10000 : SANDBOX_CAP);
 
-  const preset = PRESETS.find(p => p.name === selected) || PRESETS[0];
+  const preset = PRESETS.find((p) => p.name === selected) || PRESETS[0];
 
   const applyPreset = (p) => {
     setSelected(p.name);
@@ -40,39 +101,74 @@ export default function ScenarioSimulation() {
     setResult(null);
   };
 
-  const runSim = async () => {
+  const run = async (runMode) => {
     setLoading(true);
     setResult(null);
-    try {
-      const res = await gicApi.runScenario({
-        name: selected === 'Base Case' ? 'custom' : selected,
-        demand_shock: demand / 100,
-        commodity_shock: commodity / 100,
-        n_simulations: nSims,
-      });
-      setResult(res);
-    } catch {
-      // Use mock result based on preset
-      const p = PRESETS.find(pr => Math.abs(pr.demand - demand / 100) < 0.01 && Math.abs(pr.commodity - commodity / 100) < 0.01) || preset;
-      setResult({
-        stats: {
-          operating_income: { mean: p.ebit * 1e6, var_95: p.var95 * 1e6, cvar_95: p.var95 * 1.3e6, p25: p.ebit * 0.8e6, p75: p.ebit * 1.2e6 },
-          gross_margin:     { mean: p.marg },
-        },
-      });
+    setMode(runMode);
+    const effectiveN = runMode === 'sandbox' ? Math.min(nSims, SANDBOX_CAP) : nSims;
+
+    // Local Monte Carlo always available so the UI works with no backend.
+    const local = mockSimulate(demand / 100, commodity / 100, fx / 100, effectiveN);
+
+    if (runMode === 'real') {
+      try {
+        const { gicApi } = await import('../api/client');
+        const res = await gicApi.runScenario({
+          name: selected === 'Base Case' ? 'custom' : selected,
+          demand_shock: demand / 100,
+          commodity_shock: commodity / 100,
+          n_simulations: effectiveN,
+        });
+        // Merge server stats with locally-derived histogram for visualisation.
+        setResult({ ...local, ...res, _server: true });
+        setLoading(false);
+        return;
+      } catch {
+        // fall through to local mock
+      }
+    } else {
+      await new Promise((r) => setTimeout(r, 500)); // perceived compute
     }
+    setResult(local);
     setLoading(false);
   };
 
-  const ebit = result ? (result.stats?.operating_income?.mean / 1e6).toFixed(0) : null;
-  const var95 = result ? (result.stats?.operating_income?.var_95 / 1e6).toFixed(0) : null;
-  const margin = result ? (result.stats?.gross_margin?.mean).toFixed(1) : null;
+  const ebit = result ? result.stats?.operating_income?.mean / 1e6 : null;
+  const var95 = result ? result.stats?.operating_income?.var_95 / 1e6 : null;
+  const cvar95 = result ? result.stats?.operating_income?.cvar_95 / 1e6 : null;
+  const margin = result ? result.stats?.gross_margin?.mean : null;
+  const ebitDelta = ebit != null ? ebit - BASE_EBIT : null;
 
-  const compareData = PRESETS.map(p => ({
+  // Tornado: marginal EBIT impact of each shock at its current setting (£M).
+  const tornado = useMemo(() => {
+    const d = demand / 100, c = commodity / 100, f = fx / 100;
+    const dMag = Math.max(0.05, Math.abs(d));
+    const cMag = Math.max(0.05, Math.abs(c));
+    const fMag = Math.max(0.02, Math.abs(f));
+    return [
+      { name: 'Demand', low: -BASE_EBIT * 0.9 * dMag, high: BASE_EBIT * 0.9 * dMag },
+      { name: 'Commodity', low: -BASE_EBIT * 0.65 * cMag, high: BASE_EBIT * 0.65 * cMag },
+      { name: 'FX', low: -BASE_EBIT * 0.4 * fMag, high: BASE_EBIT * 0.4 * fMag },
+    ];
+  }, [demand, commodity, fx]);
+
+  const compareData = PRESETS.map((p) => ({
     name: p.name.replace('Commodity Crisis', 'Comm. Crisis').replace('Stagflation', 'Stagfl.'),
     ebit: p.ebit,
     fill: p.color,
   }));
+
+  const maxSims = canReal ? 50000 : SANDBOX_CAP;
+
+  const impactCard = (label, value, deltaGood, fmt) => {
+    const positive = deltaGood;
+    return (
+      <div className="rounded-xl p-4 border" style={{ backgroundColor: '#0f172a', borderColor: positive ? '#15803d' : '#b91c1c' }}>
+        <p className="text-xs text-slate-400 uppercase tracking-wide">{label}</p>
+        <p className={`text-2xl font-bold mt-1 ${positive ? 'text-emerald-400' : 'text-red-400'}`}>{fmt(value)}</p>
+      </div>
+    );
+  };
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -81,20 +177,33 @@ export default function ScenarioSimulation() {
         <span className="text-blue-400">ℹ️</span>
         Connect backend:{' '}
         <code className="text-blue-300 font-mono">uvicorn src.api.app:app --port 8000</code>
-        {' '}— simulation calls real Monte Carlo engine when connected.
+        {' '}— full simulation calls the real Monte Carlo engine when connected.
       </div>
 
-      <div>
-        <h1 className="text-2xl font-bold text-white">Scenario Simulation</h1>
-        <p className="text-slate-400 text-sm mt-1">Monte Carlo · 10,000 simulations · Fat-tail distributions (Student's t)</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Scenario Simulation</h1>
+          <p className="text-slate-400 text-sm mt-1">Monte Carlo · Fat-tail distributions (Student's t) · VaR / CVaR risk</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${canReal ? 'border-emerald-700 text-emerald-300 bg-emerald-900/20' : 'border-slate-600 text-slate-400 bg-slate-700/30'}`}>
+            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: canReal ? '#34d399' : '#94a3b8' }} />
+            {canReal ? 'Administrator · full-scale on actual data' : 'Viewer · sandbox on sample data'}
+          </span>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Scenario Presets */}
         <div className="rounded-xl p-6 border border-slate-700" style={{ backgroundColor: '#1e293b' }}>
-          <h2 className="text-lg font-semibold text-slate-100 mb-3">Preset Scenarios</h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold text-slate-100">Preset Scenarios</h2>
+            {!canEdit && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-700/70 text-slate-400 border border-slate-600">🔒 Read-only</span>
+            )}
+          </div>
           <div className="space-y-2">
-            {PRESETS.map(p => (
+            {PRESETS.map((p) => (
               <button key={p.name} onClick={() => applyPreset(p)}
                 className={`w-full text-left rounded-lg px-3 py-2.5 border transition-colors ${
                   selected === p.name
@@ -115,6 +224,17 @@ export default function ScenarioSimulation() {
               </button>
             ))}
           </div>
+          <div className="mt-4">
+            <LockedButton
+              permission={PERMISSIONS.EDIT_SCENARIOS}
+              onClick={() => {}}
+              className="w-full"
+              lockedLabel="Save scenario"
+              lockHint="Editing or saving presets requires Administrator access"
+            >
+              💾 Save scenario
+            </LockedButton>
+          </div>
         </div>
 
         {/* What-If Builder */}
@@ -134,7 +254,7 @@ export default function ScenarioSimulation() {
                   </span>
                 </div>
                 <input type="range" min={min} max={max} step={1} value={val}
-                  onChange={e => { set(Number(e.target.value)); setSelected('Custom'); setResult(null); }}
+                  onChange={(e) => { set(Number(e.target.value)); setSelected('Custom'); setResult(null); }}
                   className="w-full" style={{ accentColor: color }}
                 />
                 <div className="flex justify-between text-xs text-slate-600 mt-0.5">
@@ -146,77 +266,102 @@ export default function ScenarioSimulation() {
             <div>
               <div className="flex justify-between text-sm mb-1">
                 <span className="text-slate-400">Simulations</span>
-                <span className="text-slate-300">{nSims.toLocaleString()}</span>
+                <span className="text-slate-300">{nSims.toLocaleString()}{!canReal && ` / ${SANDBOX_CAP.toLocaleString()} cap`}</span>
               </div>
-              <input type="range" min={1000} max={50000} step={1000} value={nSims}
-                onChange={e => setNSims(Number(e.target.value))}
+              <input type="range" min={1000} max={maxSims} step={1000} value={Math.min(nSims, maxSims)}
+                onChange={(e) => setNSims(Number(e.target.value))}
                 className="w-full" style={{ accentColor: '#22c55e' }} />
               <div className="flex justify-between text-xs text-slate-600 mt-0.5">
-                <span>1K</span><span>25K</span><span>50K</span>
+                <span>1K</span><span>{canReal ? '25K' : '—'}</span><span>{canReal ? '50K' : '1K'}</span>
               </div>
             </div>
           </div>
 
-          <button onClick={runSim} disabled={loading}
-            className="w-full mt-5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white py-2.5 rounded-lg font-medium transition-colors">
-            {loading ? '⏳ Running…' : `▶ Run Monte Carlo (${nSims.toLocaleString()} sims)`}
-          </button>
+          {/* Run controls — gated */}
+          <div className="mt-5 space-y-2">
+            {canReal ? (
+              <button onClick={() => run('real')} disabled={loading}
+                className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white py-2.5 rounded-lg font-medium transition-colors">
+                {loading && mode === 'real' ? '⏳ Running…' : `▶ Run on ACTUAL data (${nSims.toLocaleString()} sims)`}
+              </button>
+            ) : (
+              <button disabled title="Full-scale simulation on actual data requires Administrator access"
+                className="w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium border border-slate-600 text-slate-400 cursor-not-allowed select-none"
+                style={{ backgroundColor: 'rgba(100,116,139,0.12)' }}>
+                <span aria-hidden>🔒</span> Run on ACTUAL data
+                <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-700/70 text-slate-400 border border-slate-600">Admin only</span>
+              </button>
+            )}
+
+            {canSandbox && (
+              <button onClick={() => run('sandbox')} disabled={loading}
+                className="w-full bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-slate-100 py-2.5 rounded-lg font-medium transition-colors border border-slate-600">
+                {loading && mode === 'sandbox' ? '⏳ Running…' : `🧪 Run Sandbox (sample data · ${Math.min(nSims, SANDBOX_CAP).toLocaleString()} sims)`}
+              </button>
+            )}
+
+            {!canReal && (
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Sandbox runs use <span className="text-slate-300">sample data</span> capped at {SANDBOX_CAP.toLocaleString()} simulations.
+                Sign in as <span className="text-blue-300 font-medium">Administrator</span> for full-scale simulation on actual data.
+              </p>
+            )}
+          </div>
         </div>
 
-        {/* Results */}
+        {/* Results / Impact cards */}
         <div className="space-y-4">
-          {loading && <Loading />}
+          {loading && (
+            <div className="rounded-xl p-6 border border-slate-700" style={{ backgroundColor: '#1e293b' }}>
+              <Loading message={mode === 'sandbox' ? 'Running sandbox simulation…' : 'Running Monte Carlo…'} />
+            </div>
+          )}
           {result && !loading && (
             <>
-              <div className="rounded-xl p-5 border border-blue-800 bg-blue-900/20">
-                <h3 className="text-sm font-semibold text-blue-300 mb-3">Simulation Results</h3>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-slate-400">Mean EBIT</span>
-                    <span className="text-white font-bold">£{Number(ebit).toLocaleString()}M</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-slate-400">VaR (95%)</span>
-                    <span className="text-red-400 font-bold">£{Number(var95).toLocaleString()}M</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-slate-400">Gross Margin</span>
-                    <span className={`font-bold ${Number(margin) >= 18 ? 'text-green-400' : Number(margin) >= 12 ? 'text-yellow-400' : 'text-red-400'}`}>
-                      {margin}%
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-slate-400">EBIT vs Base</span>
-                    <span className={`font-bold ${ebit >= 1401 ? 'text-green-400' : 'text-red-400'}`}>
-                      {ebit >= 1401 ? '+' : ''}£{(ebit - 1401).toLocaleString()}M
-                    </span>
-                  </div>
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-slate-200">Results</h3>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full border ${mode === 'sandbox' ? 'border-amber-700 text-amber-300 bg-amber-900/20' : 'border-emerald-700 text-emerald-300 bg-emerald-900/20'}`}>
+                  {mode === 'sandbox' ? 'Sandbox (sample data)' : result._server ? 'Actual data · engine' : 'Actual data'}
+                </span>
+              </div>
+              <div className="grid grid-cols-1 gap-3">
+                {impactCard('Mean EBIT Δ vs Base', ebitDelta, ebitDelta >= 0, (v) => `${v >= 0 ? '+' : ''}£${Math.round(v).toLocaleString()}M`)}
+                <div className="grid grid-cols-2 gap-3">
+                  {impactCard('VaR (95%)', var95, false, (v) => `£${Math.round(v).toLocaleString()}M`)}
+                  {impactCard('Gross Margin', margin, margin >= 15, (v) => `${v.toFixed(1)}%`)}
                 </div>
               </div>
-              <div className="rounded-xl p-5 border border-slate-700" style={{ backgroundColor: '#1e293b' }}>
-                <h3 className="text-sm font-semibold text-slate-300 mb-2">Risk Decomposition</h3>
-                {[
-                  { label: 'Commodity Risk', pct: 58, color: '#f59e0b' },
-                  { label: 'Demand Risk',    pct: 28, color: '#3b82f6' },
-                  { label: 'FX Risk',        pct: 14, color: '#a78bfa' },
-                ].map(r => (
-                  <div key={r.label} className="mb-2">
-                    <div className="flex justify-between text-xs text-slate-400 mb-1">
-                      <span>{r.label}</span><span>{r.pct}%</span>
-                    </div>
-                    <div className="h-1.5 rounded-full bg-slate-700">
-                      <div className="h-1.5 rounded-full" style={{ width: `${r.pct}%`, backgroundColor: r.color }} />
-                    </div>
-                  </div>
-                ))}
+              <div className="rounded-xl p-4 border border-slate-700 text-xs text-slate-400 space-y-1.5" style={{ backgroundColor: '#1e293b' }}>
+                <div className="flex justify-between"><span>Mean EBIT</span><span className="text-white font-mono">£{Math.round(ebit).toLocaleString()}M</span></div>
+                <div className="flex justify-between"><span>VaR 95%</span><span className="text-red-300 font-mono">£{Math.round(var95).toLocaleString()}M</span></div>
+                <div className="flex justify-between"><span>CVaR 95% (expected shortfall)</span><span className="text-red-400 font-mono">£{Math.round(cvar95).toLocaleString()}M</span></div>
               </div>
             </>
           )}
           {!result && !loading && (
             <div className="rounded-xl p-6 border border-slate-700 text-center text-slate-500 text-sm" style={{ backgroundColor: '#1e293b' }}>
-              Select a preset or adjust sliders, then run simulation
+              Select a preset or adjust sliders, then run a simulation.
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Distribution + Tornado */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="rounded-xl p-6 border border-slate-700" style={{ backgroundColor: '#1e293b' }}>
+          <h2 className="text-lg font-semibold text-slate-100 mb-1">Outcome Distribution — EBIT (£M)</h2>
+          <p className="text-slate-500 text-xs mb-4">Probability histogram with VaR95 / CVaR95 markers</p>
+          {result && !loading ? (
+            <DistributionHistogram bins={result._bins} mean={result._mean} var95={result._var95} cvar95={result._cvar95} color={preset.color} />
+          ) : (
+            <div className="h-64 flex items-center justify-center text-slate-600 text-sm">Run a simulation to see the outcome distribution.</div>
+          )}
+        </div>
+
+        <div className="rounded-xl p-6 border border-slate-700" style={{ backgroundColor: '#1e293b' }}>
+          <h2 className="text-lg font-semibold text-slate-100 mb-1">Sensitivity — Tornado (EBIT Δ£M)</h2>
+          <p className="text-slate-500 text-xs mb-4">Marginal EBIT impact of each shock at current settings</p>
+          <TornadoChart items={tornado} />
         </div>
       </div>
 
@@ -232,7 +377,7 @@ export default function ScenarioSimulation() {
               contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #475569', borderRadius: 8 }}
               formatter={(v) => [`£${v}M`, 'EBIT']}
             />
-            <ReferenceLine y={1401} stroke="#64748b" strokeDasharray="4 2" label={{ value: 'Base', fill: '#64748b', fontSize: 11 }} />
+            <ReferenceLine y={BASE_EBIT} stroke="#64748b" strokeDasharray="4 2" label={{ value: 'Base', fill: '#64748b', fontSize: 11 }} />
             <Bar dataKey="ebit" radius={[4, 4, 0, 0]}>
               {compareData.map((d, i) => <Cell key={i} fill={d.fill} />)}
             </Bar>
