@@ -33,6 +33,11 @@ try:
 except Exception:  # pragma: no cover - defensive import
     realtime_router = None
 
+try:
+    from src.api.routes.intelligence import intelligence_router
+except Exception:  # pragma: no cover - defensive import
+    intelligence_router = None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -80,6 +85,10 @@ def create_app() -> FastAPI:
     # Real-time market feed — REST snapshot + WebSocket /ws/market
     if realtime_router is not None:
         app.include_router(realtime_router)
+
+    # Intelligence layer — change-point detection (G7) + quantile VaR (G11)
+    if intelligence_router is not None:
+        app.include_router(intelligence_router)
 
     return app
 

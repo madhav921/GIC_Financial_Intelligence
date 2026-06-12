@@ -11,6 +11,7 @@ from loguru import logger
 
 from src.models.commodity_forecast import CommodityForecastModel, ForecastResult
 from src.models.regime_detector import RegimeDetector
+from src.models.change_point import ChangePointDetector, RegimeShiftAlert
 from src.config import get_settings
 
 
@@ -120,3 +121,75 @@ class IntelligenceLayerController:
     ) -> dict:
         """Execute 7-step monthly variance tracking and model update cycle."""
         return self._model.run_monthly_update(commodity_df, prior_forecasts)
+
+    # ── Change-Point Detection (G7) ───────────────────────────────────────────
+
+    def detect_structural_breaks(
+        self,
+        commodity: str,
+        commodity_df: pd.DataFrame,
+        recent_window: int = 6,
+    ) -> dict:
+        """
+        Run CUSUM + BOCPD change-point detection on a commodity price series.
+        Returns RegimeShiftAlert fields + full CUSUM break list.
+        """
+        if commodity not in commodity_df.columns:
+            return {"error": f"Commodity '{commodity}' not found", "shifted": False}
+
+        series = commodity_df.set_index("date")[commodity].dropna() if "date" in commodity_df.columns else commodity_df[commodity].dropna()
+        detector = ChangePointDetector(min_segment=6)
+        alert = detector.latest_regime_shift(series, recent_window=recent_window)
+        breaks = detector.detect_cusum(series)
+
+        return {
+            "commodity": commodity,
+            "shifted": alert.shifted,
+            "n_breaks": alert.n_breaks,
+            "last_break_date": alert.last_break_date,
+            "direction": alert.direction,
+            "confidence": alert.confidence,
+            "reforecast_recommended": alert.shifted and alert.confidence > 0.6,
+            "breaks": [
+                {
+                    "index": b.index,
+                    "date": b.date,
+                    "direction": b.direction,
+                    "magnitude": round(b.magnitude, 4),
+                    "confidence": round(b.confidence, 3),
+                }
+                for b in breaks
+            ],
+        }
+
+    def check_reforecast_needed(
+        self,
+        commodity_df: pd.DataFrame,
+        macro_df: Optional[pd.DataFrame] = None,
+    ) -> dict[str, dict]:
+        """
+        Check all commodities for structural breaks. Auto-retrain any that
+        triggered a regime shift with confidence > 0.6.
+        Returns {commodity: {alert, retrained}} for any that need attention.
+        """
+        flagged: dict[str, dict] = {}
+        commodity_cols = [c for c in commodity_df.columns if c != "date"]
+
+        for commodity in commodity_cols:
+            result = self.detect_structural_breaks(commodity, commodity_df)
+            if result.get("reforecast_recommended"):
+                logger.info(
+                    f"Layer 2 [G7]: Structural break detected for {commodity} "
+                    f"(conf={result['confidence']:.2f}) — auto-retraining"
+                )
+                retrained = False
+                try:
+                    self._model.train_all_commodities(commodity_df, macro_df)
+                    retrained = True
+                except Exception as exc:
+                    logger.warning(f"Layer 2 [G7]: Retrain failed for {commodity} — {exc}")
+
+                flagged[commodity] = {**result, "retrained": retrained}
+
+        logger.info(f"Layer 2 [G7]: {len(flagged)}/{len(commodity_cols)} commodities flagged for reforecast")
+        return flagged

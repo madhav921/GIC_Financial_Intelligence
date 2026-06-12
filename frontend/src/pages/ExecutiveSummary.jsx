@@ -16,7 +16,7 @@ import LiveMarketTape from '../components/realtime/LiveMarketTape';
 import LiveKpiStrip from '../components/realtime/LiveKpiStrip';
 import InsightCard from '../components/insights/InsightCard';
 import RiskGauge from '../components/insights/RiskGauge';
-import useRealtime from '../hooks/useRealtime';
+import { useRealtimeContext } from '../context/RealtimeContext';
 import { gicApi } from '../api/client';
 
 // ── Mock fallback data ────────────────────────────────────────────────────────
@@ -140,7 +140,7 @@ export default function ExecutiveSummary() {
   const [loading, setLoading] = useState(true);
   const [insightsData, setInsightsData] = useState(MOCK_INSIGHTS);
   const [earlyWarning, setEarlyWarning] = useState(MOCK_EARLY_WARNING);
-  const { snapshot } = useRealtime();
+  const { snapshot } = useRealtimeContext();
 
   useEffect(() => {
     let mounted = true;

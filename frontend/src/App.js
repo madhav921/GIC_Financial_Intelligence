@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './auth/AuthContext';
+import { RealtimeProvider } from './context/RealtimeContext';
 import ProtectedRoute from './auth/ProtectedRoute';
 import { PERMISSIONS } from './auth/permissions';
 import Sidebar from './components/Layout/Sidebar';
@@ -67,7 +68,9 @@ export default function App() {
             path="/app/*"
             element={
               <ProtectedRoute>
-                <AppShell />
+                <RealtimeProvider>
+                  <AppShell />
+                </RealtimeProvider>
               </ProtectedRoute>
             }
           />

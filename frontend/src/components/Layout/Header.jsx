@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext';
 import { isAdmin } from '../../auth/permissions';
-import useRealtime from '../../hooks/useRealtime';
+import { useRealtimeContext } from '../../context/RealtimeContext';
 
 const ROUTE_TITLES = {
   '/app/executive': 'Executive Summary',
@@ -28,7 +28,7 @@ export default function Header() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const { connected, source } = useRealtime();
+  const { connected, source } = useRealtimeContext();
   const [now, setNow] = useState(new Date());
 
   useEffect(() => {

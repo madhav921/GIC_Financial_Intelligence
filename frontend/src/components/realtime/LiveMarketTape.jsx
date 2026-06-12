@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import useRealtime from '../../hooks/useRealtime';
+import { useRealtimeContext } from '../../context/RealtimeContext';
 
 // Format a price by magnitude/unit for compact display.
 function fmtPrice(price, unit) {
@@ -58,7 +58,7 @@ function TickerItem({ label, value, change, unit }) {
 }
 
 export default function LiveMarketTape() {
-  const { snapshot, connected, source } = useRealtime();
+  const { snapshot, connected, source } = useRealtimeContext();
   const s = snapshot;
 
   const live = source === 'live' && connected;

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import useRealtime from '../../hooks/useRealtime';
+import { useRealtimeContext } from '../../context/RealtimeContext';
 
 function bandColor(band) {
   const b = (band || '').toLowerCase();
@@ -54,7 +54,7 @@ function LiveTile({ title, value, sub, subColor, accent, format }) {
 }
 
 export default function LiveKpiStrip() {
-  const { snapshot } = useRealtime();
+  const { snapshot } = useRealtimeContext();
   const s = snapshot || {};
 
   const idxChange = s.commodity_index_change_pct ?? 0;

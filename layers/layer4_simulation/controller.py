@@ -11,6 +11,7 @@ from loguru import logger
 from src.simulation.monte_carlo import MonteCarloEngine, SimulationResult
 from src.simulation.scenario_engine import ScenarioEngine
 from src.models.hedge_optimizer import HedgeOptimizer
+from src.models.quantile_forecast import QuantileForecaster
 
 
 class SimulationLayerController:
@@ -96,6 +97,89 @@ class SimulationLayerController:
         """
         logger.info("Layer 4: Decomposing variance by risk source")
         return self._mc_engine.decompose_variance(sales_df, commodity_index_df, n_simulations)
+
+    # ── Quantile-Regression VaR/CVaR (G11) ───────────────────────────────────
+
+    def quantile_var_forecast(
+        self,
+        commodity_index_df: pd.DataFrame,
+        horizon: int = 12,
+        quantiles: tuple = (0.05, 0.25, 0.50, 0.75, 0.95),
+    ) -> dict:
+        """
+        Fit a gradient-boosted quantile regression on the commodity index history
+        and produce asymmetric VaR/CVaR bounds for the forward horizon.
+
+        Returns:
+            {quantile_bands, var_5pct, cvar_5pct, var_95pct, backend, n_train}
+        """
+        logger.info(f"Layer 4 [G11]: Quantile regression VaR (horizon={horizon}m)")
+
+        if "commodity_index" not in commodity_index_df.columns:
+            # Fall back to first numeric column.
+            num_cols = commodity_index_df.select_dtypes("number").columns.tolist()
+            if not num_cols:
+                return {"error": "No numeric column in commodity_index_df"}
+            col = num_cols[0]
+        else:
+            col = "commodity_index"
+
+        series = commodity_index_df[col].dropna().values
+        n = len(series)
+        if n < 24:
+            return {"error": f"Series too short for quantile VaR (n={n})"}
+
+        # Build lag features (lags 1, 3, 6) for the quantile regressor.
+        import numpy as np
+        lags = [1, 3, 6]
+        max_lag = max(lags)
+        X_rows, y_rows = [], []
+        for i in range(max_lag, n):
+            X_rows.append([series[i - l] for l in lags])
+            y_rows.append(series[i])
+        X = np.array(X_rows)
+        y = np.array(y_rows)
+
+        split = max(1, int(len(X) * 0.8))
+        X_train, X_test = X[:split], X[split:]
+        y_train = y[:split]
+
+        qf = QuantileForecaster(
+            quantiles=tuple(sorted(quantiles)),
+            n_estimators=200,
+            max_depth=3,
+        )
+        try:
+            qf.fit(X_train, y_train)
+        except Exception as exc:
+            return {"error": f"Quantile fit failed: {exc}"}
+
+        # Predict on the test/recent window for current VaR.
+        X_recent = X_test if len(X_test) >= 1 else X[-min(6, len(X)):]
+        bands = qf.predict(X_recent)
+
+        # Summarise: use the mean of the last-horizon predictions.
+        h = min(horizon, len(X_recent))
+        summary: dict = {"quantile_bands": {}, "backend": qf.backend, "n_train": split}
+        for q, preds in bands.items():
+            summary["quantile_bands"][str(q)] = float(np.mean(preds[-h:]))
+
+        q_keys = sorted(bands.keys())
+        lo_key, hi_key = q_keys[0], q_keys[-1]
+        mid = float(np.mean(bands[0.50][-h:])) if 0.50 in bands else float(np.mean(series[-h:]))
+        lo_vals = bands[lo_key][-h:]
+        hi_vals = bands[hi_key][-h:]
+
+        summary["var_5pct"] = float(np.mean(lo_vals))
+        summary["cvar_5pct"] = float(np.mean(lo_vals[lo_vals <= np.percentile(lo_vals, 25)])) if len(lo_vals) > 4 else summary["var_5pct"]
+        summary["var_95pct"] = float(np.mean(hi_vals))
+        summary["median_forecast"] = mid
+
+        logger.info(
+            f"Layer 4 [G11]: Quantile VaR — 5th={summary['var_5pct']:.2f}, "
+            f"median={mid:.2f}, 95th={summary['var_95pct']:.2f}"
+        )
+        return summary
 
     def optimize_hedge(
         self,
