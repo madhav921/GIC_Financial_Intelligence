@@ -73,8 +73,8 @@ export const gicApi = {
   // Forecasts
   forecastCommodity: (commodity, horizonMonths = 12) =>
     api.post('/forecast/commodity', { commodity, horizon_months: horizonMonths }),
-  forecastCommodityIndex: () => api.post('/forecast/commodity-index', {}),
-  getElasticity: () => api.post('/forecast/elasticity', {}),
+  forecastCommodityIndex: () => api.get('/forecast/commodity-index'),
+  getElasticity: () => api.get('/forecast/elasticity'),
 
   // Simulation
   runScenario: (params) => api.post('/simulation/scenario', params),
