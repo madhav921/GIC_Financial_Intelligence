@@ -13,7 +13,7 @@
 - **Technique** — named method (so the team can find the paper/library).
 - **How it works** — one line.
 - **Expected uplift** — accuracy *or* decision-impact, indicative.
-- **Complexity** — Low / Med / High implementation+maintenance effort for GIC's stack (Python, Polars, XGBoost/SARIMAX, FastAPI, Streamlit).
+- **Complexity** — Low / Med / High implementation+maintenance effort for GIC's stack (Python, Polars, XGBoost/SARIMAX, FastAPI, React).
 - **Call** — **ADOPT** (do it), **EVALUATE** (spike/benchmark first), **SKIP** (not worth it for GIC now).
 
 GIC's current baseline for context: SARIMAX+XGBoost ensemble with Hurst-regime adaptive weighting; best MAPE ~7% (Copper), worst ~31% (Natural Gas); 80% CI calibrated to 79% (parametric, now augmented with split-conformal); Monte Carlo VaR(95%) ≈ £705M.

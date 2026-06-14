@@ -4,7 +4,7 @@
 **Date:** 2026-06-11
 **Purpose:** An honest, board-credible benchmark of GIC against (a) **commercial FP&A / planning platforms** — Anaplan, Pigment, o9 Solutions, Board, Workday Adaptive Planning, Kinaxis — and (b) **academic SOTA** forecasting. Calls out where GIC leads, where it lags, and a prioritized backlog.
 
-> **Honesty principle.** Where a number is *measured* it is cited to GIC's own 2024 hold-out backtest (`docs/TECHNICAL_ASSESSMENT.md` / `docs/FULL_ARCHITECTURE_RUN.md`). Where it is a *judgement* (e.g. comparison to a commercial platform whose internals are proprietary) it is marked **indicative** and reflects analyst assessment of public capability, not a controlled bake-off. See §6 Methodology & Caveats.
+> **Honesty principle.** Where a number is *measured* it is cited to GIC's own 2024 hold-out backtest (`docs/TECHNICAL_DEEP_DIVE.md` / `docs/FULL_ARCHITECTURE_RUN.md`). Where it is a *judgement* (e.g. comparison to a commercial platform whose internals are proprietary) it is marked **indicative** and reflects analyst assessment of public capability, not a controlled bake-off. See §6 Methodology & Caveats.
 
 ---
 
@@ -34,7 +34,7 @@ Scores: **GIC** = current state *after this iteration*. **Commercial SOTA** = be
 | **Driver-based planning** | 4 | 5 | 3 | GIC's driver tree is transparent and correct, but commercial platforms (Anaplan, Pigment, o9) are *purpose-built* multi-dimensional planning engines at enterprise scale. |
 | **Governance / audit** | 4 | 5 | 2.5 | Immutable JSONL audit trail + RBAC + bias tracking. Enterprise platforms have mature SOC2/SSO/approval-workflow governance GIC has not yet matched. |
 | **Data integration** | 2.5 | 5 | 2 | GIC connects market/macro APIs but ERP (SAP) / data-lake connectors are stubs; operational data is synthetic. Commercial = deep, certified ERP/CRM connectors. |
-| **UX** | 3.5 | 4.5 | 2 | 8-page Streamlit dashboard is strong for a POC; commercial platforms have polished, multi-tenant, mobile, collaborative UX. |
+| **UX** | 4.0 | 4.5 | 2 | 11-page React dashboard (Recharts, Tailwind) with live WebSocket feed, RBAC gating, and Vercel deployment; commercial platforms have polished, multi-tenant, mobile, collaborative UX. |
 | **Weighted overall** | **~3.8** | **~3.9** | **~3.6** | GIC is *board-credible and competitive*; leads on uncertainty/prescription, lags on integration/enterprise-scale planning. |
 
 ---
@@ -138,7 +138,7 @@ The additions this iteration moved five dimensions. Deltas vs the pre-iteration 
 
 ## 6. Methodology & Caveats
 
-**Measured numbers** (from `docs/TECHNICAL_ASSESSMENT.md` + `docs/FULL_ARCHITECTURE_RUN.md`, 2024 hold-out backtest; models trained Jun-2019–Dec-2023, tested Jan–Dec-2024):
+**Measured numbers** (from `docs/TECHNICAL_DEEP_DIVE.md` + `docs/FULL_ARCHITECTURE_RUN.md`, 2024 hold-out backtest; models trained Jun-2019–Dec-2023, tested Jan–Dec-2024):
 
 - Best MAPE **7.0% (Copper)**, **8.9% (Platinum)**, **9.8% (Polypropylene)**; worst **31.1% (Natural Gas)**, **29.1% (Palladium)**, **17.2% (ABS Resin)**.
 - Directional accuracy **52–76%**.

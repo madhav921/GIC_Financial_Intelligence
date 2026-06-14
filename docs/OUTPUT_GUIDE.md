@@ -1,6 +1,6 @@
 # Output Interpretation Guide — Understanding the Numbers
 
-This guide explains how to read every number in the Executive Intelligence Report and dashboard, so you can explain them to executives.
+This guide explains how to read every number in the Executive Intelligence Report and React dashboard, so you can explain them to executives.
 
 ---
 
@@ -280,40 +280,36 @@ CI Calibration:
 
 ---
 
-## Dashboard Output — Interactive Outputs
+## Dashboard Output — Interactive Outputs (React SPA)
 
-### **Executive Summary Page**
-- **KPI Cards**: Commodity index, material spend, scenario COGS swings
-  - Update daily with real Yahoo Finance data
-- **BOM-Weighted Index Chart**: Time series showing cost trajectory
-  - Use to track inflation trends month-by-month
-- **Commodity Price Table**: All 12 with YoY%, 7-yr mean context
-  - Color-coded (green = below mean, red = above mean)
-- **Forecast Accuracy Heatmap**: CV MAPE by commodity
-  - Green < 10%, Yellow 10–20%, Red > 20%
+### **Executive Summary** (`/app/executive`)
+- **Live KPI Strip**: Real-time commodity index, EBIT nowcast, risk score
+  - Updates every tick via WebSocket `/ws/market`
+- **Risk Gauge**: 0–100 early-warning score with colour bands
+- **Top Insights**: Ranked InsightCards with £-quantified recommended actions
+- **Commodity Heatmap**: All 12 commodities — YoY%, current vs 7-yr mean
 
-### **Intelligence Report Page**
-- **Full Board Report**: The 766-line narrative
-  - Download button (PDF export)
-- **Commodity Deep Dive**: Pick any commodity
-  - Historical prices + forecast bands
-  - Scenario sensitivity
-  - Return distribution
+### **Commodity Intelligence** (`/app/commodity`)
+- **Forecast Chart**: Historical prices + 12-month forward + conformal prediction bands
+  - Conformal bands: ≥90% coverage by construction (ACI)
+- **SHAP Drivers**: Top features driving each commodity's forecast direction
+- **Change-Point Alert**: CUSUM+BOCPD flag when a regime shift is detected
+- **MA / Bollinger Overlays**: Technical overlays on price chart
 
-### **Commodity Intelligence Page**
-- **Live Shock Calculator**: Move a slider
-  - Lithium +20% → EBIT -£180M (recalculates in <1 sec)
-  - Shows which P&L drivers are affected (revenue, COGS, margin)
-- **Directional Signal**: Up/Down arrow based on momentum
-- **Hedge Recommendation**: "Optimal ratio: 75% (vs. 50% industry standard)"
+### **Financial P&L** (`/app/pnl`)
+- **EBIT Waterfall**: Plan-to-Perform decomposition by Volume / Price / Commodity / FX / Overhead
+- **Segment Bars**: Revenue by EV / Luxury SUV / Performance / Premium SUV
+- **Sensitivity Slider**: Commodity shock → instant EBIT recalculation
 
-### **Financial P&L Page**
-- **P&L Drivers**: Revenue, COGS, margin breakdown
-  - Commodity COGS as % of total
-  - Fixed vs. variable costs
-- **Monte Carlo Distribution**: Histogram of 10,000 EBIT outcomes
-  - Overlaid with current year actual (calibration check)
-- **VaR Gauge**: Visual risk meter
+### **Scenario Simulation** (`/app/simulation`)
+- **MC Distribution**: Histogram of 10,000 EBIT outcomes with VaR/CVaR markers
+- **Tornado Chart**: Sensitivity of EBIT to each input driver
+- **7 Presets**: Bear / Base / Bull + 4 commodity-specific shock presets
+
+### **Market Monitor** (`/app/market`)
+- **Live Price Tape**: Real-time commodity prices + sparklines
+- **FX Panel**: GBP/USD, EUR/USD rates
+- **WebSocket status**: "LIVE" (backend connected) or "Simulated" (JS fallback)
 
 ---
 
@@ -390,12 +386,12 @@ CI Calibration:
 
 | Use Case | Best Tool | Why |
 |----------|-----------|-----|
-| Daily market check | Dashboard page 1 | Real-time update, 10-second scan |
-| Scenario sensitivity ("What if...") | Dashboard page 3 (shock calc) | Live interactivity, instant feedback |
-| Board presentation | Intelligence Report (download) | Narrative + numbers, printable |
-| Hedge decision | Dashboard pages 3+4 | Optimal ratio + cost-benefit |
-| Risk reserve planning | Report + Dashboard (MC page) | VaR + CI + calibration proof |
-| Quarterly guidance | Report section 5 | Scenario analysis + recommendations |
+| Daily market check | Executive Summary (`/app/executive`) | Live feed, 10-second scan |
+| Scenario sensitivity ("What if...") | Financial P&L (`/app/pnl`) sensitivity slider | Live interactivity, instant EBIT recalc |
+| Board presentation | Governance narratives (`/app/governance`) | LLM narrative + audit-ready output |
+| Hedge decision | Simulation (`/app/simulation`) tornado chart | Optimal ratio + VaR cost-benefit |
+| Risk reserve planning | Simulation MC histogram + VaR markers | Probabilistic distribution + CVaR |
+| Quarterly guidance | Insights Centre (`/app/insights`) | £-quantified prescriptive actions |
 
 ---
 
