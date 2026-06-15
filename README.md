@@ -7,8 +7,57 @@ Translates commodity market signals into quantified EBIT impact, VaR-bounded ris
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/API-FastAPI-009688.svg)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/frontend-React-61DAFB.svg)](https://react.dev)
-[![Vercel](https://img.shields.io/badge/deploy-Vercel-black.svg)](https://vercel.com)
-[![Supabase](https://img.shields.io/badge/db-Supabase-3ECF8E.svg)](https://supabase.com)
+
+---
+
+## Run Locally (New Machine Setup)
+
+Everything — backend, frontend, auth, synthetic data — runs self-contained. No external database or API keys required.
+
+### Option A — Docker (recommended, 1 command)
+
+Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/).
+
+```bash
+git clone https://github.com/madhav921/GIC_Financial_Intelligence
+cd GIC_Financial_Intelligence
+docker compose up --build
+```
+
+| Service | URL |
+|---------|-----|
+| Frontend dashboard | http://localhost:3000 |
+| Backend API | http://localhost:8000 |
+| API docs (Swagger) | http://localhost:8000/docs |
+
+First build takes ~3–5 min (downloads base images + installs deps). Subsequent runs start in seconds.
+
+### Option B — Native (2 commands)
+
+Requires Python 3.10+ and Node.js 18+.
+
+**Unix / Mac:**
+```bash
+git clone https://github.com/madhav921/GIC_Financial_Intelligence
+cd GIC_Financial_Intelligence
+chmod +x start.sh && ./start.sh
+```
+
+**Windows (PowerShell):**
+```powershell
+git clone https://github.com/madhav921/GIC_Financial_Intelligence
+cd GIC_Financial_Intelligence
+.\start.ps1
+```
+
+The scripts auto-create the Python venv, install all dependencies, and start both servers.
+
+### Demo login
+
+| Role | Username | Password | Access |
+|------|----------|----------|--------|
+| Admin | `admin` | `admin123` | Full — simulations, audit trail, exports |
+| User | `user` | `user123` | Read-only dashboards, sandbox simulation |
 
 ---
 
@@ -127,27 +176,8 @@ GIC_Financial_Intelligence/
 
 ---
 
-## Quick Start
+## Run Full Pipeline (Python only)
 
-### Backend
-```bash
-git clone https://github.com/madhav921/GIC_Financial_Intelligence
-cd GIC_Financial_Intelligence
-pip install -r requirements.txt
-uvicorn src.api.app:app --reload --port 8000
-# → API docs at http://localhost:8000/docs
-```
-
-### Frontend
-```bash
-cd frontend
-npm install
-echo "REACT_APP_API_URL=http://localhost:8000" > .env
-npm start
-# → Dashboard at http://localhost:3000
-```
-
-### Run Full Pipeline (Python)
 ```python
 from orchestrator import GICOrchestrator
 engine = GICOrchestrator()
@@ -155,12 +185,6 @@ results = engine.run_full_pipeline(n_simulations=10_000)
 # returns: layer1_data, layer2_intelligence, layer3_financial,
 #          layer4_simulation, layer5_governance, pipeline_elapsed_seconds
 ```
-
-### Demo Login
-| Role | Username | Password | Access |
-|------|----------|----------|--------|
-| Admin | `admin` | `admin123` | Full — run simulations, audit trail, exports |
-| User | `user` | `user123` | Read-only dashboards, sandbox simulation |
 
 ---
 

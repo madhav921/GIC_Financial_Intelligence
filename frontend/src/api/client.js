@@ -130,6 +130,8 @@ export const gicApi = {
   runScenario: (params) => api.post('/simulation/scenario', params),
   getPresets: () => api.get('/simulation/presets'),
   comparePresets: () => api.get('/simulation/compare-presets'),
+  varianceDecomposition: () => api.get('/simulation/variance-decomposition'),
+  monthlyFan: () => api.get('/simulation/monthly-fan'),
 
   // P&L
   buildPnL: (params = {}) => api.post('/pnl/build', params),

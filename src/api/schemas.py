@@ -40,6 +40,8 @@ class ScenarioResponse(BaseModel):
     scenario_name: str
     deterministic: dict
     simulation_stats: dict | None = None
+    # Histogram bins for the distribution chart: [{x: £M, count: int}]
+    histogram_bins: list[dict] | None = None
 
 
 class FinancialSummaryResponse(BaseModel):

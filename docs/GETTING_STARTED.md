@@ -1,6 +1,8 @@
 # Getting Started — GIC Financial Intelligence Platform
 
-Up and running in **5 minutes**.
+Up and running in **one command** (Docker) or **one script** (native).
+
+No external database or API keys required — everything runs self-contained with synthetic data and a local JSON-backed auth store.
 
 ---
 
@@ -13,50 +15,49 @@ GIC is a 5-layer AI financial intelligence engine for automotive OEMs. It foreca
 
 ---
 
-## Installation
+## Quick Start
 
-### Prerequisites
-- Python 3.10+
-- Node.js 18+ (for the React dashboard)
+### Option A — Docker (recommended)
 
-### Backend Setup
+Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/). No Python or Node.js needed.
 
 ```bash
 git clone https://github.com/madhav921/GIC_Financial_Intelligence
 cd GIC_Financial_Intelligence
-git checkout dev
-
-pip install -r requirements.txt
+docker compose up --build
 ```
 
-### Frontend Setup
+| Service | URL |
+|---------|-----|
+| Frontend dashboard | http://localhost:3000 |
+| Backend API | http://localhost:8000 |
+| API docs (Swagger) | http://localhost:8000/docs |
 
+First build takes ~3–5 min. Subsequent `docker compose up` starts in seconds.
+
+### Option B — Native scripts
+
+Requires Python 3.10+ and Node.js 18+.
+
+**Unix / Mac:**
 ```bash
-cd frontend
-npm install
-cp .env.example .env            # set REACT_APP_API_URL=http://localhost:8000
+git clone https://github.com/madhav921/GIC_Financial_Intelligence
+cd GIC_Financial_Intelligence
+chmod +x start.sh && ./start.sh
 ```
+
+**Windows (PowerShell):**
+```powershell
+git clone https://github.com/madhav921/GIC_Financial_Intelligence
+cd GIC_Financial_Intelligence
+.\start.ps1
+```
+
+The scripts auto-create the Python venv, install all dependencies, and start both servers. On subsequent runs they skip the install steps and start immediately.
 
 ---
 
-## Start the Platform
-
-### 1. Start the API server
-
-```bash
-uvicorn src.api.app:app --reload --port 8000
-# → API at http://localhost:8000
-# → Interactive docs at http://localhost:8000/docs
-```
-
-### 2. Start the React dashboard
-
-```bash
-cd frontend && npm start
-# → Dashboard at http://localhost:3000
-```
-
-### 3. Log in
+## Log In
 
 | Role | Username | Password | Can do |
 |------|----------|----------|--------|
@@ -162,10 +163,12 @@ datasets = DataLayerController().generate_synthetic_data()
 | Symptom | Fix |
 |---------|-----|
 | `Module not found` | `pip install -r requirements.txt` in repo root (not frontend/) |
-| Dashboard shows no data | Start backend first: `uvicorn src.api.app:app --port 8000` |
+| Dashboard shows no data | Start backend first; wait for the health check to pass |
 | WebSocket shows "Simulated" | Expected — client simulator runs when backend WS is unreachable |
-| Build fails | `npm install` in `frontend/`, then `npm run build` |
-| Auth fails | Check `auth/users.json` exists; delete it to regenerate with seed users |
+| Auth fails | Delete `auth/users.json` to regenerate seed users on next start |
+| Docker: port already in use | Stop any process using ports 3000 or 8000, then re-run |
+| Docker: frontend not loading | Backend may still be initialising; wait ~30s and refresh |
+| Windows script blocked | Run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` then retry |
 
 ---
 

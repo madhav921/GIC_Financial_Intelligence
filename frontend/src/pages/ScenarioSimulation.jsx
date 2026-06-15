@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, Cell,
@@ -7,8 +7,10 @@ import Loading from '../components/common/Loading';
 import LockedButton from '../components/common/LockedButton';
 import DistributionHistogram from '../components/Charts/DistributionHistogram';
 import TornadoChart from '../components/Charts/TornadoChart';
+import FanChart from '../components/Charts/FanChart';
 import { useAuth } from '../auth/AuthContext';
 import { can, PERMISSIONS } from '../auth/permissions';
+import { gicApi } from '../api/client';
 
 const PRESETS = [
   { name: 'Base Case',        demand: 0,    commodity: 0,    fx: 0,    color: '#3b82f6', ebit: 1401, var95: -705, marg: 18.5 },
@@ -40,21 +42,19 @@ function mockSimulate(demand, commodity, fx, n) {
   const vol = BASE_EBIT * (0.14 + Math.abs(commodity) * 0.5 + Math.abs(demand) * 0.3 + Math.abs(fx) * 0.4);
   const samples = new Array(n);
   for (let i = 0; i < n; i++) {
-    // Student-t-ish fat tail: blend a normal with an occasional wide draw.
     const tail = Math.random() < 0.06 ? randn() * 2.2 : 0;
     samples[i] = meanEbit + (randn() + tail) * vol;
   }
   samples.sort((a, b) => a - b);
   const pct = (p) => samples[Math.min(n - 1, Math.max(0, Math.floor(p * n)))];
   const var95 = pct(0.05);
-  const tail = samples.filter((s) => s <= var95);
-  const cvar95 = tail.length ? tail.reduce((a, b) => a + b, 0) / tail.length : var95;
+  const tailSamples = samples.filter((s) => s <= var95);
+  const cvar95 = tailSamples.length ? tailSamples.reduce((a, b) => a + b, 0) / tailSamples.length : var95;
   const mean = samples.reduce((a, b) => a + b, 0) / n;
 
-  // Histogram bins
   const lo = samples[0];
   const hi = samples[n - 1];
-  const nb = 28;
+  const nb = 30;
   const w = (hi - lo) / nb || 1;
   const bins = Array.from({ length: nb }, (_, i) => ({ x: lo + w * (i + 0.5), count: 0 }));
   samples.forEach((s) => {
@@ -76,20 +76,77 @@ function mockSimulate(demand, commodity, fx, n) {
   };
 }
 
+// Mock variance decomposition for offline display.
+const MOCK_VAR_DECOMP = { commodity_pct: 62.4, demand_pct: 22.8, fx_pct: 14.8 };
+
+// Mock monthly fan chart for offline display.
+function buildMockFan() {
+  const labels = [
+    'Jul 26','Aug 26','Sep 26','Oct 26','Nov 26','Dec 26',
+    'Jan 27','Feb 27','Mar 27','Apr 27','May 27','Jun 27',
+  ];
+  return labels.map((date, i) => {
+    const base = 116 + i * 0.9;
+    return {
+      date,
+      mean:  +(base).toFixed(1),
+      p5:    +(base * 0.60).toFixed(1),
+      p10:   +(base * 0.69).toFixed(1),
+      p25:   +(base * 0.83).toFixed(1),
+      p75:   +(base * 1.18).toFixed(1),
+      p90:   +(base * 1.29).toFixed(1),
+      p95:   +(base * 1.37).toFixed(1),
+    };
+  });
+}
+
+const MOCK_FAN = buildMockFan();
+
 export default function ScenarioSimulation() {
   const { user } = useAuth();
-  const canReal = can(user, PERMISSIONS.RUN_SIMULATION);
+  const canReal    = can(user, PERMISSIONS.RUN_SIMULATION);
   const canSandbox = can(user, PERMISSIONS.RUN_SANDBOX_SIMULATION);
-  const canEdit = can(user, PERMISSIONS.EDIT_SCENARIOS);
+  const canEdit    = can(user, PERMISSIONS.EDIT_SCENARIOS);
 
-  const [selected, setSelected] = useState('Base Case');
-  const [demand, setDemand] = useState(0);
+  const [selected, setSelected]   = useState('Base Case');
+  const [demand, setDemand]       = useState(0);
   const [commodity, setCommodity] = useState(0);
-  const [fx, setFx] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState(null);
-  const [mode, setMode] = useState(null); // 'real' | 'sandbox'
-  const [nSims, setNSims] = useState(canReal ? 10000 : SANDBOX_CAP);
+  const [fx, setFx]               = useState(0);
+  const [loading, setLoading]     = useState(false);
+  const [result, setResult]       = useState(null);
+  const [mode, setMode]           = useState(null);
+  const [nSims, setNSims]         = useState(canReal ? 10000 : SANDBOX_CAP);
+
+  // Variance decomposition — loaded on mount; falls back to mock offline
+  const [varDecomp, setVarDecomp] = useState(null);
+  const [varDecompLive, setVarDecompLive] = useState(false);
+
+  // Monthly fan chart — loaded on mount; falls back to mock offline
+  const [fanData, setFanData]   = useState(MOCK_FAN);
+  const [fanLive, setFanLive]   = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const vd = await gicApi.varianceDecomposition();
+        setVarDecomp(vd);
+        setVarDecompLive(true);
+      } catch {
+        setVarDecomp(MOCK_VAR_DECOMP);
+      }
+    })();
+    (async () => {
+      try {
+        const fan = await gicApi.monthlyFan();
+        if (fan?.months?.length) {
+          setFanData(fan.months);
+          setFanLive(true);
+        }
+      } catch {
+        setFanData(MOCK_FAN);
+      }
+    })();
+  }, []);
 
   const preset = PRESETS.find((p) => p.name === selected) || PRESETS[0];
 
@@ -107,24 +164,56 @@ export default function ScenarioSimulation() {
     setMode(runMode);
     const effectiveN = runMode === 'sandbox' ? Math.min(nSims, SANDBOX_CAP) : nSims;
 
-    // Local Monte Carlo always available so the UI works with no backend.
+    // Local Monte Carlo always runs first — provides histogram bins and fallback stats.
     const local = mockSimulate(demand / 100, commodity / 100, fx / 100, effectiveN);
 
     if (runMode === 'real') {
       try {
-        const { gicApi } = await import('../api/client');
         const res = await gicApi.runScenario({
           name: selected === 'Base Case' ? 'custom' : selected,
           demand_shock: demand / 100,
           commodity_shock: commodity / 100,
           n_simulations: effectiveN,
         });
-        // Merge server stats with locally-derived histogram for visualisation.
-        setResult({ ...local, ...res, _server: true });
+
+        // Build merged result: start from local (for _bins/_mean/_var95/_cvar95),
+        // then overlay backend simulation_stats for the KPI display cards.
+        let merged = { ...local, _server: true };
+
+        if (res.simulation_stats) {
+          const sim = res.simulation_stats;
+          // Backend stats are in raw £; gross_margin.mean is absolute £ so convert to %.
+          const meanRevenue = sim.net_revenue?.mean || res.deterministic?.total_revenue || 0;
+          const gmPct = meanRevenue > 0
+            ? (sim.gross_margin?.mean || 0) / meanRevenue * 100
+            : (res.deterministic?.margin_pct ?? local.stats.gross_margin.mean);
+
+          merged.stats = {
+            operating_income: {
+              mean:   sim.operating_income?.mean   ?? local.stats.operating_income.mean,
+              var_95: sim.operating_income?.var_95 ?? local.stats.operating_income.var_95,
+              cvar_95: sim.operating_income?.cvar_95 ?? local.stats.operating_income.cvar_95,
+              p25:    sim.operating_income?.p25    ?? local.stats.operating_income.p25,
+              p75:    sim.operating_income?.p75    ?? local.stats.operating_income.p75,
+            },
+            gross_margin: { mean: gmPct },
+          };
+          // Align histogram reference lines with backend stats (convert raw £ → £M)
+          merged._mean  = (sim.operating_income?.mean   ?? local._mean  * 1e6) / 1e6;
+          merged._var95 = (sim.operating_income?.var_95 ?? local._var95 * 1e6) / 1e6;
+          merged._cvar95 = (sim.operating_income?.cvar_95 ?? local._cvar95 * 1e6) / 1e6;
+        }
+
+        // Use backend histogram bins when provided (x already in £M from server)
+        if (res.histogram_bins?.length) {
+          merged._bins = res.histogram_bins;
+        }
+
+        setResult(merged);
         setLoading(false);
         return;
       } catch {
-        // fall through to local mock
+        // Backend unreachable — fall through to local result
       }
     } else {
       await new Promise((r) => setTimeout(r, 500)); // perceived compute
@@ -133,22 +222,21 @@ export default function ScenarioSimulation() {
     setLoading(false);
   };
 
-  const ebit = result ? result.stats?.operating_income?.mean / 1e6 : null;
-  const var95 = result ? result.stats?.operating_income?.var_95 / 1e6 : null;
-  const cvar95 = result ? result.stats?.operating_income?.cvar_95 / 1e6 : null;
-  const margin = result ? result.stats?.gross_margin?.mean : null;
+  const ebit     = result ? result.stats?.operating_income?.mean  / 1e6 : null;
+  const var95    = result ? result.stats?.operating_income?.var_95 / 1e6 : null;
+  const cvar95   = result ? result.stats?.operating_income?.cvar_95 / 1e6 : null;
+  const margin   = result ? result.stats?.gross_margin?.mean : null;
   const ebitDelta = ebit != null ? ebit - BASE_EBIT : null;
 
-  // Tornado: marginal EBIT impact of each shock at its current setting (£M).
   const tornado = useMemo(() => {
     const d = demand / 100, c = commodity / 100, f = fx / 100;
     const dMag = Math.max(0.05, Math.abs(d));
     const cMag = Math.max(0.05, Math.abs(c));
     const fMag = Math.max(0.02, Math.abs(f));
     return [
-      { name: 'Demand', low: -BASE_EBIT * 0.9 * dMag, high: BASE_EBIT * 0.9 * dMag },
+      { name: 'Demand',    low: -BASE_EBIT * 0.9  * dMag, high: BASE_EBIT * 0.9  * dMag },
       { name: 'Commodity', low: -BASE_EBIT * 0.65 * cMag, high: BASE_EBIT * 0.65 * cMag },
-      { name: 'FX', low: -BASE_EBIT * 0.4 * fMag, high: BASE_EBIT * 0.4 * fMag },
+      { name: 'FX',        low: -BASE_EBIT * 0.4  * fMag, high: BASE_EBIT * 0.4  * fMag },
     ];
   }, [demand, commodity, fx]);
 
@@ -160,15 +248,20 @@ export default function ScenarioSimulation() {
 
   const maxSims = canReal ? 50000 : SANDBOX_CAP;
 
-  const impactCard = (label, value, deltaGood, fmt) => {
-    const positive = deltaGood;
-    return (
-      <div className="rounded-xl p-4 border" style={{ backgroundColor: '#0f172a', borderColor: positive ? '#15803d' : '#b91c1c' }}>
-        <p className="text-xs text-slate-400 uppercase tracking-wide">{label}</p>
-        <p className={`text-2xl font-bold mt-1 ${positive ? 'text-emerald-400' : 'text-red-400'}`}>{fmt(value)}</p>
-      </div>
-    );
-  };
+  const impactCard = (label, value, deltaGood, fmt) => (
+    <div className="rounded-xl p-4 border" style={{ backgroundColor: '#0f172a', borderColor: deltaGood ? '#15803d' : '#b91c1c' }}>
+      <p className="text-xs text-slate-400 uppercase tracking-wide">{label}</p>
+      <p className={`text-2xl font-bold mt-1 ${deltaGood ? 'text-emerald-400' : 'text-red-400'}`}>{fmt(value)}</p>
+    </div>
+  );
+
+  // Variance decomposition bar widths
+  const vd = varDecomp || MOCK_VAR_DECOMP;
+  const vdBars = [
+    { label: 'Commodity', pct: vd.commodity_pct, color: '#f59e0b' },
+    { label: 'Demand',    pct: vd.demand_pct,    color: '#3b82f6' },
+    { label: 'FX',        pct: vd.fx_pct,        color: '#a78bfa' },
+  ];
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -183,13 +276,38 @@ export default function ScenarioSimulation() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-white">Scenario Simulation</h1>
-          <p className="text-slate-400 text-sm mt-1">Monte Carlo · Fat-tail distributions (Student's t) · VaR / CVaR risk</p>
+          <p className="text-slate-400 text-sm mt-1">Monte Carlo · Fat-tail distributions (Student's t) · VaR / CVaR · Variance decomposition</p>
         </div>
         <div className="flex items-center gap-2">
           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${canReal ? 'border-emerald-700 text-emerald-300 bg-emerald-900/20' : 'border-slate-600 text-slate-400 bg-slate-700/30'}`}>
             <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: canReal ? '#34d399' : '#94a3b8' }} />
             {canReal ? 'Administrator · full-scale on actual data' : 'Viewer · sandbox on sample data'}
           </span>
+        </div>
+      </div>
+
+      {/* ── Monte Carlo Engine Status ─────────────────────────────────────────── */}
+      <div className="rounded-xl p-5 border border-slate-700" style={{ backgroundColor: '#1e293b' }}>
+        <div className="flex flex-wrap items-center gap-6">
+          <div className="flex items-center gap-3">
+            <span className="text-lg">🎲</span>
+            <div>
+              <p className="text-sm font-semibold text-slate-200">Monte Carlo Engine</p>
+              <p className="text-xs text-slate-500">Student's t fat-tails · NumPy vectorised · up to 50K sims</p>
+            </div>
+          </div>
+          {[
+            { label: 'Distribution',     value: 'Student\'s t (df=5)' },
+            { label: 'Risk metrics',     value: 'VaR95 · CVaR95 · p5–p95' },
+            { label: 'Shock sources',    value: 'Demand · Commodity · FX' },
+            { label: 'Variance decomp',  value: varDecompLive ? '✓ Live' : 'Mock fallback', live: varDecompLive },
+            { label: 'Fan chart',        value: fanLive ? '✓ Live' : 'Mock fallback', live: fanLive },
+          ].map((m) => (
+            <div key={m.label} className="text-xs">
+              <p className="text-slate-500 uppercase tracking-wide">{m.label}</p>
+              <p className={m.live === true ? 'text-emerald-400 font-semibold' : m.live === false ? 'text-amber-400' : 'text-slate-200'}>{m.value}</p>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -242,9 +360,9 @@ export default function ScenarioSimulation() {
           <h2 className="text-lg font-semibold text-slate-100 mb-4">What-If Builder</h2>
           <div className="space-y-5">
             {[
-              { label: 'Demand Shock', val: demand, set: setDemand, min: -20, max: 20, color: '#3b82f6' },
+              { label: 'Demand Shock',    val: demand,    set: setDemand,    min: -20, max: 20, color: '#3b82f6' },
               { label: 'Commodity Shock', val: commodity, set: setCommodity, min: -30, max: 50, color: '#f59e0b' },
-              { label: 'FX Shock', val: fx, set: setFx, min: -15, max: 15, color: '#a78bfa' },
+              { label: 'FX Shock',        val: fx,        set: setFx,        min: -15, max: 15, color: '#a78bfa' },
             ].map(({ label, val, set, min, max, color }) => (
               <div key={label}>
                 <div className="flex justify-between text-sm mb-1">
@@ -277,7 +395,6 @@ export default function ScenarioSimulation() {
             </div>
           </div>
 
-          {/* Run controls — gated */}
           <div className="mt-5 space-y-2">
             {canReal ? (
               <button onClick={() => run('real')} disabled={loading}
@@ -313,7 +430,7 @@ export default function ScenarioSimulation() {
         <div className="space-y-4">
           {loading && (
             <div className="rounded-xl p-6 border border-slate-700" style={{ backgroundColor: '#1e293b' }}>
-              <Loading message={mode === 'sandbox' ? 'Running sandbox simulation…' : 'Running Monte Carlo…'} />
+              <Loading message={mode === 'sandbox' ? 'Running sandbox simulation…' : 'Running Monte Carlo engine…'} />
             </div>
           )}
           {result && !loading && (
@@ -321,7 +438,7 @@ export default function ScenarioSimulation() {
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-slate-200">Results</h3>
                 <span className={`text-[10px] px-2 py-0.5 rounded-full border ${mode === 'sandbox' ? 'border-amber-700 text-amber-300 bg-amber-900/20' : 'border-emerald-700 text-emerald-300 bg-emerald-900/20'}`}>
-                  {mode === 'sandbox' ? 'Sandbox (sample data)' : result._server ? 'Actual data · engine' : 'Actual data'}
+                  {mode === 'sandbox' ? 'Sandbox (sample data)' : result._server ? 'Actual data · MC engine' : 'Actual data'}
                 </span>
               </div>
               <div className="grid grid-cols-1 gap-3">
@@ -335,6 +452,11 @@ export default function ScenarioSimulation() {
                 <div className="flex justify-between"><span>Mean EBIT</span><span className="text-white font-mono">£{Math.round(ebit).toLocaleString()}M</span></div>
                 <div className="flex justify-between"><span>VaR 95%</span><span className="text-red-300 font-mono">£{Math.round(var95).toLocaleString()}M</span></div>
                 <div className="flex justify-between"><span>CVaR 95% (expected shortfall)</span><span className="text-red-400 font-mono">£{Math.round(cvar95).toLocaleString()}M</span></div>
+                {result._server && (
+                  <div className="pt-1 border-t border-slate-700 text-emerald-500">
+                    ✓ Statistics from backend Monte Carlo engine (NumPy, Student's t)
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -346,11 +468,14 @@ export default function ScenarioSimulation() {
         </div>
       </div>
 
-      {/* Distribution + Tornado */}
+      {/* ── Distribution + Tornado ────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="rounded-xl p-6 border border-slate-700" style={{ backgroundColor: '#1e293b' }}>
           <h2 className="text-lg font-semibold text-slate-100 mb-1">Outcome Distribution — EBIT (£M)</h2>
-          <p className="text-slate-500 text-xs mb-4">Probability histogram with VaR95 / CVaR95 markers</p>
+          <p className="text-slate-500 text-xs mb-4">
+            Probability histogram with VaR95 / CVaR95 markers
+            {result?._server && <span className="text-emerald-500 ml-2">· Bins from backend engine</span>}
+          </p>
           {result && !loading ? (
             <DistributionHistogram bins={result._bins} mean={result._mean} var95={result._var95} cvar95={result._cvar95} color={preset.color} />
           ) : (
@@ -365,7 +490,55 @@ export default function ScenarioSimulation() {
         </div>
       </div>
 
-      {/* Scenario Comparison */}
+      {/* ── Variance Decomposition ────────────────────────────────────────────── */}
+      <div className="rounded-xl p-6 border border-slate-700" style={{ backgroundColor: '#1e293b' }}>
+        <div className="flex items-center gap-3 mb-1">
+          <h2 className="text-lg font-semibold text-slate-100">Variance Decomposition</h2>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${varDecompLive ? 'border-emerald-700 text-emerald-400 bg-emerald-900/20' : 'border-amber-700 text-amber-400 bg-amber-900/20'}`}>
+            {varDecompLive ? '✓ Live · backend MC' : 'Mock · connect backend'}
+          </span>
+        </div>
+        <p className="text-slate-500 text-xs mb-5">
+          Share of total P&L variance attributable to each risk source (3 × 3,000-simulation partial MC)
+        </p>
+        <div className="space-y-4">
+          {vdBars.map((b) => (
+            <div key={b.label}>
+              <div className="flex justify-between text-sm mb-1.5">
+                <span className="text-slate-300 font-medium">{b.label}</span>
+                <span className="font-mono font-bold" style={{ color: b.color }}>{b.pct.toFixed(1)}%</span>
+              </div>
+              <div className="h-4 rounded-full bg-slate-700/60 overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-700"
+                  style={{ width: `${Math.min(100, b.pct)}%`, backgroundColor: b.color, opacity: 0.85 }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-slate-500 mt-4 leading-relaxed">
+          Commodity price movements account for the majority of P&L uncertainty —
+          hedging lithium and steel exposures delivers the highest marginal reduction in financial risk.
+          Demand and FX shocks are secondary but can amplify tail outcomes.
+        </p>
+      </div>
+
+      {/* ── Monthly EBIT Fan Chart ────────────────────────────────────────────── */}
+      <div>
+        <div className="flex items-center gap-3 mb-2">
+          <h2 className="text-lg font-semibold text-white">Monthly EBIT Fan Chart</h2>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${fanLive ? 'border-emerald-700 text-emerald-400 bg-emerald-900/20' : 'border-amber-700 text-amber-400 bg-amber-900/20'}`}>
+            {fanLive ? '✓ Live · per-month MC' : 'Mock · connect backend'}
+          </span>
+        </div>
+        <p className="text-slate-400 text-xs mb-3">
+          Monthly operating income distribution — 90% and 50% confidence bands from Monte Carlo (2,000 sims per month)
+        </p>
+        <FanChart data={fanData} title="" color={preset.color} />
+      </div>
+
+      {/* ── Scenario Comparison ───────────────────────────────────────────────── */}
       <div className="rounded-xl p-6 border border-slate-700" style={{ backgroundColor: '#1e293b' }}>
         <h2 className="text-lg font-semibold text-slate-100 mb-4">Scenario Comparison — EBIT (£M)</h2>
         <ResponsiveContainer width="100%" height={220}>
