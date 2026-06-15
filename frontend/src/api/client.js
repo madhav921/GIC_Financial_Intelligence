@@ -24,9 +24,39 @@ api.interceptors.response.use(
   (response) => response.data,
   (error) => {
     const message = error.response?.data?.detail || error.message || 'API error';
-    return Promise.reject(new Error(message));
+    const err = new Error(message);
+    err.status = error.response?.status;
+    return Promise.reject(err);
   }
 );
+
+// ── Client-side demo auth (used when backend is unreachable) ──────────────────
+const DEMO_CREDENTIALS = { admin: 'admin123', user: 'user123' };
+
+const MOCK_USERS = {
+  mock_admin: {
+    username: 'admin',
+    full_name: 'Administrator',
+    role: 'ADMIN',
+    permissions: [
+      'view_dashboard', 'view_executive_summary', 'view_forecasts', 'view_insights',
+      'view_aggregated_data', 'view_market_monitor', 'view_audit_summary', 'view_warranty',
+      'run_sandbox_simulation', 'run_simulation', 'edit_scenarios', 'view_raw_data',
+      'manage_thresholds', 'trigger_retraining', 'trigger_data_fetch', 'view_audit_full',
+      'export_reports', 'regenerate_narratives', 'manage_users',
+    ],
+  },
+  mock_user: {
+    username: 'user',
+    full_name: 'Analyst',
+    role: 'USER',
+    permissions: [
+      'view_dashboard', 'view_executive_summary', 'view_forecasts', 'view_insights',
+      'view_aggregated_data', 'view_market_monitor', 'view_audit_summary', 'view_warranty',
+      'run_sandbox_simulation',
+    ],
+  },
+};
 
 /**
  * Derive the WebSocket base URL from the configured API base.
@@ -53,8 +83,28 @@ export const gicApi = {
   getModels: () => api.get('/models'),
 
   // Auth
-  login: (username, password) => api.post('/auth/login', { username, password }),
-  me: () => api.get('/auth/me'),
+  login: async (username, password) => {
+    try {
+      return await api.post('/auth/login', { username, password });
+    } catch (e) {
+      if (e.status) throw e;                            // real HTTP error — propagate
+      const key = `mock_${username}`;
+      if (DEMO_CREDENTIALS[username] === password && MOCK_USERS[key]) {
+        return { access_token: key, user: MOCK_USERS[key] };
+      }
+      throw new Error('Invalid username or password.');
+    }
+  },
+  me: async () => {
+    try {
+      return await api.get('/auth/me');
+    } catch (e) {
+      if (e.status) throw e;                            // real HTTP error — propagate
+      const token = localStorage.getItem(TOKEN_KEY);
+      if (token && MOCK_USERS[token]) return MOCK_USERS[token];
+      throw e;
+    }
+  },
   demoProfiles: () => api.get('/auth/demo-profiles'),
   permissions: () => api.get('/auth/permissions'),
   logout: () => {

@@ -408,9 +408,12 @@ export default function ExecutiveSummary() {
             <div className="mt-4 w-full">
               <div className="text-[11px] text-slate-500 uppercase tracking-wide mb-1.5">Top drivers</div>
               <div className="flex flex-wrap gap-1.5">
-                {ew.top_drivers.slice(0, 3).map((dr) => (
-                  <span key={dr} className="text-[11px] px-2 py-0.5 rounded-full bg-slate-700/60 text-slate-300 border border-slate-600">{dr}</span>
-                ))}
+                {ew.top_drivers.slice(0, 3).map((dr, i) => {
+                  const label = typeof dr === 'string' ? dr : (dr?.component || String(dr));
+                  return (
+                    <span key={i} className="text-[11px] px-2 py-0.5 rounded-full bg-slate-700/60 text-slate-300 border border-slate-600">{label}</span>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -431,7 +434,9 @@ export default function ExecutiveSummary() {
               The early-warning model places composite risk at{' '}
               <span className="font-semibold text-white">{Number(ew.score).toFixed(0)}/100</span>{' '}
               (<span className="capitalize">{ew.band}</span>), driven principally by{' '}
-              <span className="text-amber-300 font-semibold">{ew.top_drivers?.[0] || 'commodity exposure'}</span>.
+              <span className="text-amber-300 font-semibold">{
+                (() => { const d = ew.top_drivers?.[0]; return (typeof d === 'string' ? d : d?.component) || 'commodity exposure'; })()
+              }</span>.
               Against a net exposure of <span className="font-mono text-red-300">{fmtGBPex(insightSummary.total_impact_gbp)}</span>,
               the insight engine identifies <span className="font-mono text-emerald-300">{fmtGBPex(insightSummary.total_opportunity_gbp)}</span> of
               addressable upside — concentrated in hedging the lithium spike and timing aluminium procurement. EBIT nowcast currently reads{' '}

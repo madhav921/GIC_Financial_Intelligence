@@ -113,6 +113,8 @@ export default function WarrantyAnalytics() {
   const fc = d.forecast || MOCK_WARRANTY.forecast;
   const adeq = d.accrual_adequacy || MOCK_WARRANTY.accrual_adequacy;
   const status = STATUS_MAP[adeq.status] || STATUS_MAP.adequate;
+  // Backend may return risk_score as {score, band, components} object; extract scalar
+  const riskScore = typeof d.risk_score === 'object' ? (d.risk_score?.score ?? 0) : (d.risk_score ?? 0);
 
   // Forecast chart data — stack band as (lower) + (upper-lower) for the floating area.
   const chartData = useMemo(() => {
@@ -133,8 +135,12 @@ export default function WarrantyAnalytics() {
   );
 
   const failureModes = useMemo(() => {
-    const fm = d.failure_modes || {};
+    const raw = d.failure_modes || {};
+    // Backend returns {breakdown_pct: {...}, rising_modes: [], dominant_mode: str}
+    // Mock uses flat {mode: pct} object — normalise to the flat form
+    const fm = typeof raw.breakdown_pct === 'object' ? raw.breakdown_pct : raw;
     return Object.entries(fm)
+      .filter(([, v]) => typeof v === 'number')
       .map(([name, pct]) => ({ name, pct }))
       .sort((a, b) => b.pct - a.pct);
   }, [d.failure_modes]);
@@ -179,7 +185,7 @@ export default function WarrantyAnalytics() {
               </div>
             </div>
             <div className="rounded-xl p-5 border border-slate-700 flex items-center justify-center" style={{ backgroundColor: '#1e293b' }}>
-              <RiskGauge score={d.risk_score ?? 0} size={200} label="Warranty Risk" />
+              <RiskGauge score={riskScore} size={200} label="Warranty Risk" />
             </div>
           </div>
 
