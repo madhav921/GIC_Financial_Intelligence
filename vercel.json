@@ -1,7 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
-  "comment": "Backend-only Vercel deployment. The React frontend is deployed separately from frontend/ using frontend/vercel.json.",
   "builds": [
     {
       "src": "src/api/app.py",
