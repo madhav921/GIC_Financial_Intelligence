@@ -1,6 +1,10 @@
 """
 Data loader: unified interface for loading data from various sources.
 Priority: data/raw/ (real-world) → data/synthetic/ (fallback).
+
+Commodity prices are routed through MarketDataProvider so the realtime feed,
+forecasts, and financial model all share the same cached data. Changing
+market_data_source in settings.yaml propagates to every consumer.
 """
 
 from __future__ import annotations
@@ -47,9 +51,19 @@ class DataLoader:
         return self._source_map.get(name, "unknown")
 
     def load_commodity_prices(self) -> pd.DataFrame:
-        path = self._resolve_path("commodity_prices")
-        df = pd.read_csv(path, parse_dates=["date"])
-        return df.sort_values("date").reset_index(drop=True)
+        """Load commodity prices via MarketDataProvider (shared cache, real-data-first)."""
+        try:
+            from src.data.market_data_provider import get_commodity_prices
+            df = get_commodity_prices()
+            self._source_map["commodity_prices"] = "real" if (
+                self._raw_dir / "commodity_prices.csv"
+            ).exists() else "synthetic"
+            return df
+        except Exception:
+            # fallback to direct file read if provider fails
+            path = self._resolve_path("commodity_prices")
+            df = pd.read_csv(path, parse_dates=["date"])
+            return df.sort_values("date").reset_index(drop=True)
 
     def load_sales_data(self) -> pd.DataFrame:
         path = self._resolve_path("sales_data")

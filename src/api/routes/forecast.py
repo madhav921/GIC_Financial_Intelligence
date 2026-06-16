@@ -75,6 +75,55 @@ async def get_commodity_index():
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@router.get("/commodity-history")
+async def get_commodity_history(commodity: str = "Steel", months: int = 36):
+    """Return historical commodity price series from the real data source.
+
+    Used by the Commodity Intelligence chart to show real price history before
+    the forecast horizon — ensures the history and forecast are on the same scale.
+
+    Args:
+        commodity: commodity name matching the CSV column (e.g. Steel, Lithium)
+        months:    number of historical months to return (default 36)
+
+    Returns:
+        {"commodity": str, "unit": str, "data_source": str,
+         "history": [{"date": "YYYY-MM", "price": float}]}
+    """
+    try:
+        loader = DataLoader()
+        commodity_df = loader.load_commodity_prices()
+
+        if commodity not in commodity_df.columns:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Commodity '{commodity}' not found. "
+                       f"Available: {[c for c in commodity_df.columns if c != 'date']}",
+            )
+
+        df = commodity_df[["date", commodity]].dropna()
+        df = df.sort_values("date").tail(months)
+
+        history = [
+            {"date": str(row["date"])[:7], "price": round(float(row[commodity]), 4)}
+            for _, row in df.iterrows()
+        ]
+
+        data_source = loader.get_data_source("commodity_prices")
+
+        return {
+            "commodity": commodity,
+            "data_source": data_source,
+            "history": history,
+        }
+    except HTTPException:
+        raise
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/elasticity")
 async def get_price_elasticity():
     """Get price elasticity estimates for all segments."""

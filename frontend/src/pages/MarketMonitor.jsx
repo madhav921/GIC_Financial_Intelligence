@@ -102,6 +102,9 @@ export default function MarketMonitor() {
     if (snapshot) setLastUpdated(new Date());
   }, [snapshot]);
 
+  // Backend-reported data source — "Yahoo Finance" or "Synthetic"
+  const backendDataSource = snapshot?.data_source || (source === 'live' ? 'Yahoo Finance' : 'Simulated');
+
   // Commodity tiles: prefer live backend feed, fall back to static
   const commodityTiles = React.useMemo(() => {
     if (snapshot?.top_commodities?.length) {
@@ -111,12 +114,12 @@ export default function MarketMonitor() {
         price: c.price,
         unit: c.unit || 'USD/t',
         change: c.change_pct,
-        source: source === 'live' ? 'Live Feed' : 'Simulated',
+        source: backendDataSource,
         isLive: true,
       }));
     }
     return FALLBACK_COMMODITIES.map((c) => ({ ...c, isLive: false }));
-  }, [snapshot, source]);
+  }, [snapshot, source, backendDataSource]);
 
   // FX rates: merge live feed (3 pairs) with static extras (2 pairs)
   const fxRows = React.useMemo(() => {
@@ -177,10 +180,18 @@ export default function MarketMonitor() {
       <div className="rounded-lg px-4 py-2 text-xs text-slate-400 border border-slate-700 flex flex-wrap items-center gap-3" style={{ backgroundColor: '#1e293b' }}>
         <span>Commodity & FX feed:</span>
         <Badge label={dataSourceLabel} color={dataSourceColor} />
-        {source === 'live'
-          ? <span className="text-green-400">WebSocket connected — prices updating every 2s from backend feed seeded with Yahoo Finance data</span>
-          : <span className="text-yellow-400">Backend offline — client-side simulator active. Run <code className="text-blue-300 font-mono">uvicorn src.api.app:app --port 8000</code> for live data.</span>
-        }
+        {source === 'live' ? (
+          <>
+            <span className="text-green-400">
+              WebSocket connected · Prices seeded from <strong>{backendDataSource}</strong> and mean-reverting every 2s
+            </span>
+            <span className="text-slate-500">
+              · Prices are ETF/futures proxies (SLX→Steel, LIT→Lithium, HG=F→Copper, etc.) in model units
+            </span>
+          </>
+        ) : (
+          <span className="text-yellow-400">Backend offline — client-side simulator active. Run <code className="text-blue-300 font-mono">uvicorn src.api.app:app --port 8000</code> for live data.</span>
+        )}
         <span className="text-slate-600 ml-auto">Market indices &amp; macro: reference data (FRED / ONS / BoE)</span>
       </div>
 
@@ -271,7 +282,7 @@ export default function MarketMonitor() {
       <SectionCard title="Automotive Commodity Spot Prices" badge={dataSourceLabel} badgeColor={dataSourceColor}>
         <p className="text-xs text-slate-500 mb-3">
           {source === 'live'
-            ? 'Live prices from backend WebSocket — seeded from Yahoo Finance real-world data (data/raw/commodity_prices.csv)'
+            ? `${backendDataSource} · ETF/futures proxies scaled to commodity units · Mean-reverting live simulation anchored to latest real prices`
             : 'Simulated prices — run backend for Yahoo Finance live data'}
           {' · '}Key supply-chain inputs against GIC's £3.3B commodity basket
         </p>

@@ -124,6 +124,8 @@ export const gicApi = {
   forecastCommodity: (commodity, horizonMonths = 12) =>
     api.post('/forecast/commodity', { commodity, horizon_months: horizonMonths }),
   forecastCommodityIndex: () => api.get('/forecast/commodity-index'),
+  getCommodityHistory: (commodity, months = 36) =>
+    api.get(`/forecast/commodity-history?commodity=${commodity}&months=${months}`),
   getElasticity: () => api.get('/forecast/elasticity'),
 
   // Simulation

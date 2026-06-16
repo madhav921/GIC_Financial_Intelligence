@@ -163,7 +163,16 @@ export default function ExecutiveSummary() {
         const data = await gicApi.getAnnualPnL();
         if (mounted) {
           setKpi(data);
-          if (data.segments) setSegments(data.segments);
+          if (data.segments && data.segments.length > 0) {
+            // Backend returns revenue in USD; normalise field names and convert to GBP.
+            // Handles both old {name, revenue} shape and corrected {segment, revenue, volume} shape.
+            const normalised = data.segments.map((s, i) => ({
+              segment: s.segment || s.name || `Segment ${i + 1}`,
+              revenue: Math.round((s.revenue || 0) / 1.27),
+              volume: s.volume || 0,
+            }));
+            setSegments(normalised);
+          }
         }
       } catch {
         if (mounted) setKpi(MOCK_KPI);

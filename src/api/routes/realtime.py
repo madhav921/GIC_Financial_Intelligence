@@ -1,15 +1,16 @@
 """Real-time market data-capture routes (REST snapshot + WebSocket live tape).
 
-Exposes a live market feed for the dashboard. The feed is self-contained: it
-seeds from ``data/synthetic/commodity_prices.csv`` when present, otherwise falls
-back to config-derived defaults. Each tick applies a small mean-reverting random
-walk so the stream looks believable without any external data dependency.
+Prices are seeded from the same data source as the forecast models:
+  data/raw/commodity_prices.csv  (Yahoo Finance, via scripts/fetch_data.py)  → primary
+  data/synthetic/commodity_prices.csv                                         → fallback
+
+The random walk mean-reverts to the real latest prices, so the live ticker
+stays anchored to real market levels rather than drifting to fictional defaults.
 """
 
 from __future__ import annotations
 
 import asyncio
-import csv
 import random
 from datetime import datetime, timezone
 from typing import Any
@@ -17,33 +18,48 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from loguru import logger
 
-from src.config import get_project_root, get_settings
+from src.config import get_settings
 
 realtime_router = APIRouter(tags=["realtime"])
 
 
-# ── Static reference data ──────────────────────────────────────────────────
+# ── Commodity metadata ─────────────────────────────────────────────────────────
 
-# Commodities surfaced on the live tape (name -> unit). Order is preserved for
-# the ``top_commodities`` payload (6 entries, as required by the UI).
-_TOP_COMMODITY_UNITS: dict[str, str] = {
-    "Steel": "USD/tonne",
-    "Lithium": "USD/kg",
-    "Aluminum": "USD/tonne",
-    "Copper": "USD/tonne",
-    "Cobalt": "USD/tonne",
-    "Nickel": "USD/tonne",
+# The 6 commodities surfaced on the live dashboard ticker.
+# Names must match column headers in commodity_prices.csv exactly.
+_TOP_COMMODITY_NAMES: list[str] = [
+    "Steel", "Lithium", "Aluminum", "Copper", "Cobalt", "Nickel",
+]
+
+_COMMODITY_UNITS: dict[str, str] = {
+    "Steel":       "USD/t",
+    "Lithium":     "USD/kg",
+    "Aluminum":    "USD/t",
+    "Copper":      "USD/t",
+    "Cobalt":      "USD/t",
+    "Nickel":      "USD/t",
+    "Platinum":    "USD/oz",
+    "Palladium":   "USD/oz",
+    "Natural_Gas": "USD/MMBtu",
+    "Polypropylene": "USD/t",
+    "ABS_Resin":   "USD/t",
 }
 
-# Sensible fallback prices (used when the CSV is missing/unreadable). Loosely
-# aligned with the synthetic dataset's recent levels.
-_DEFAULT_PRICES: dict[str, float] = {
-    "Steel": 490.0,
-    "Lithium": 4.0,
-    "Aluminum": 1650.0,
-    "Copper": 8200.0,
-    "Cobalt": 13000.0,
-    "Nickel": 8000.0,
+# Realistic fallback prices aligned with Yahoo Finance proxy values.
+# These are used ONLY when both data/raw/ and yfinance calls fail.
+# Units match COMMODITY_UNITS above (data from last known good fetch).
+_FALLBACK_PRICES: dict[str, float] = {
+    "Steel":         790.0,    # USD/t  (SLX ETF ×7.5 proxy)
+    "Lithium":        21.0,    # USD/kg (LIT ETF ×0.25 proxy)
+    "Aluminum":     3735.0,    # USD/t  (AA stock ×60 proxy)
+    "Copper":      13900.0,    # USD/t  (HG=F futures ×2204.62)
+    "Cobalt":      24700.0,    # USD/t  (GLNCY stock ×1600 proxy)
+    "Nickel":      12250.0,    # USD/t  (VALE stock ×750 proxy)
+    "Platinum":     1970.0,    # USD/oz (PL=F futures)
+    "Palladium":    1420.0,    # USD/oz (PA=F futures)
+    "Natural_Gas":    30.0,    # USD/MMBtu
+    "Polypropylene": 940.0,    # USD/t  (synthetic)
+    "ABS_Resin":    1440.0,    # USD/t  (synthetic)
 }
 
 _DEFAULT_FX: dict[str, float] = {
@@ -52,7 +68,6 @@ _DEFAULT_FX: dict[str, float] = {
     "USD/CNY": 7.15,
 }
 
-# Curated, actionable headlines rotated through on the live feed.
 _HEADLINES: list[str] = [
     "Lithium softening — window to extend battery-material hedge at favourable rates.",
     "Natural-gas volatility elevated; energy-intensive smelting costs at risk this quarter.",
@@ -77,37 +92,6 @@ def _risk_band(score: float) -> str:
     return "critical"
 
 
-def _seed_prices() -> dict[str, float]:
-    """Seed commodity prices from the last row of the synthetic CSV, if present.
-
-    Falls back to ``_DEFAULT_PRICES`` for any commodity not found or on any
-    read error — this never raises.
-    """
-    prices = dict(_DEFAULT_PRICES)
-    try:
-        csv_path = get_project_root() / "data" / "synthetic" / "commodity_prices.csv"
-        if not csv_path.exists():
-            return prices
-        with open(csv_path, "r", encoding="utf-8", newline="") as f:
-            rows = list(csv.DictReader(f))
-        if not rows:
-            return prices
-        last = rows[-1]
-        for name in _TOP_COMMODITY_UNITS:
-            raw = last.get(name)
-            if raw in (None, ""):
-                continue
-            try:
-                val = float(raw)
-            except (TypeError, ValueError):
-                continue
-            if val > 0:
-                prices[name] = val
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.warning("realtime: could not seed prices from CSV ({}); using defaults", exc)
-    return prices
-
-
 def _clamp(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, value))
 
@@ -116,12 +100,37 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _seed_prices_from_real_data() -> dict[str, float]:
+    """Load the latest commodity prices from the same source as the forecast models.
+
+    Priority: data/raw/commodity_prices.csv → yfinance live → _FALLBACK_PRICES.
+    Returns a dict keyed by commodity name with the most recent price value.
+    """
+    try:
+        from src.data.market_data_provider import get_latest_prices
+        latest = get_latest_prices()
+        if latest:
+            prices = {name: latest[name] for name in _FALLBACK_PRICES if name in latest}
+            missing = [n for n in _FALLBACK_PRICES if n not in prices]
+            if missing:
+                for m in missing:
+                    prices[m] = _FALLBACK_PRICES[m]
+            logger.info(
+                "realtime: seeded from MarketDataProvider — "
+                f"Steel={prices.get('Steel'):.0f}, Copper={prices.get('Copper'):.0f}, "
+                f"Lithium={prices.get('Lithium'):.2f}"
+            )
+            return prices
+    except Exception as exc:
+        logger.warning(f"realtime: MarketDataProvider seed failed ({exc}); using fallback prices")
+    return dict(_FALLBACK_PRICES)
+
+
 class MarketFeed:
     """Stateful market feed producing believable mean-reverting ticks.
 
-    Holds the current price/index/FX/risk state and advances it on each call to
-    :meth:`next_tick`, which returns a fully-formed snapshot dict. This is
-    deliberately decoupled from any WebSocket so the tick logic is unit-testable.
+    Prices are seeded from real market data and the random walk stays anchored
+    to those real levels, so the live tape is consistent with forecast model inputs.
     """
 
     def __init__(self, *, seed: int | None = None) -> None:
@@ -129,36 +138,35 @@ class MarketFeed:
         self._tick_count = 0
 
         try:
-            settings = get_settings()
-        except Exception:  # pragma: no cover - defensive
-            settings = {}
-        self._settings = settings
+            self._settings = get_settings()
+        except Exception:
+            self._settings = {}
 
-        # Current absolute prices + a remembered previous tick for change_pct.
-        self._prices: dict[str, float] = _seed_prices()
+        # Seed from real data (same source as forecast models).
+        self._anchor: dict[str, float] = _seed_prices_from_real_data()
+
+        # Current prices start at the real anchors.
+        self._prices: dict[str, float] = dict(self._anchor)
         self._prev_prices: dict[str, float] = dict(self._prices)
 
         self._fx: dict[str, float] = dict(_DEFAULT_FX)
         self._prev_fx: dict[str, float] = dict(self._fx)
 
+        # Commodity index starts at 100 (relative to our seeded baseline).
         self._index: float = 100.0
         self._prev_index: float = 100.0
 
         self._risk: float = 42.0
         self._headline_idx: int = 0
 
-    # ── internal random-walk helpers ───────────────────────────────────────
+    # ── random-walk helpers ────────────────────────────────────────────────────
 
     def _walk(self, value: float, anchor: float, *, vol: float, reversion: float) -> float:
-        """One mean-reverting step.
-
-        ``vol`` is the per-tick volatility (fraction of value); ``reversion``
-        pulls the value back toward ``anchor``. Result stays strictly positive.
-        """
+        """One mean-reverting step toward anchor. Returns strictly positive value."""
         shock = self._rng.gauss(0.0, vol)
-        pull = reversion * (anchor - value) / value if value else 0.0
-        new_value = value * (1.0 + shock + pull)
-        return max(new_value, anchor * 0.05, 1e-6)
+        pull = reversion * (anchor - value) / (anchor or 1.0)
+        new_value = value * (1.0 + shock) + pull * value
+        return max(new_value, anchor * 0.05, 1e-9)
 
     @staticmethod
     def _pct(curr: float, prev: float) -> float:
@@ -167,55 +175,56 @@ class MarketFeed:
         return round((curr - prev) / prev * 100.0, 3)
 
     def _ebit_nowcast(self) -> float:
-        """Live EBIT estimate in the £1.3–1.5bn range, anti-correlated with the
-        commodity index (higher input costs -> lower EBIT)."""
-        base = 1.42e9
-        # +/-0.06bn swing across the plausible index range (95..115 -> ~100 mid).
-        adjustment = (100.0 - self._index) / 20.0 * 0.06e9
-        jitter = self._rng.gauss(0.0, 0.004e9)
-        return round(_clamp(base + adjustment + jitter, 1.30e9, 1.50e9), 0)
+        """Live EBIT estimate in the £3.5–4.0bn annual range (£290-330M/month).
 
-    # ── public API ─────────────────────────────────────────────────────────
+        Anti-correlated with commodity index: higher input costs → lower EBIT.
+        """
+        base = 3.75e9          # £3.75bn annual (consistent with /pnl/annual)
+        # ±£150m swing across the plausible index range (95..115 → ~100 mid).
+        adjustment = (100.0 - self._index) / 20.0 * 0.15e9
+        jitter = self._rng.gauss(0.0, 0.02e9)
+        return round(_clamp(base + adjustment + jitter, 3.3e9, 4.2e9), 0)
+
+    # ── public API ─────────────────────────────────────────────────────────────
 
     def next_tick(self) -> dict[str, Any]:
-        """Advance state by one tick and return the current snapshot dict."""
+        """Advance state by one tick and return a snapshot dict."""
         self._tick_count += 1
 
-        # Snapshot previous state for change_pct computation.
         self._prev_prices = dict(self._prices)
         self._prev_fx = dict(self._fx)
         self._prev_index = self._index
 
-        # Walk commodity prices (mean-revert toward their seed anchor).
-        for name, price in self._prices.items():
-            anchor = _DEFAULT_PRICES.get(name, price)
-            # Use a blended anchor: seeded level matters more than the static default.
-            self._prices[name] = self._walk(price, anchor, vol=0.006, reversion=0.02)
+        # Walk commodity prices: mean-revert toward the real seeded anchor.
+        for name in self._prices:
+            anchor = self._anchor.get(name, self._prices[name])
+            self._prices[name] = self._walk(
+                self._prices[name], anchor, vol=0.004, reversion=0.015
+            )
 
-        # Walk FX (low volatility).
-        for pair, rate in self._fx.items():
+        # Walk FX (tight band around real rates).
+        for pair in self._fx:
             anchor = _DEFAULT_FX[pair]
-            self._fx[pair] = self._walk(rate, anchor, vol=0.0015, reversion=0.03)
+            self._fx[pair] = self._walk(self._fx[pair], anchor, vol=0.0010, reversion=0.03)
 
-        # Walk the commodity index, mean-reverting to ~100, clamped to ~95-115.
+        # Walk commodity index, mean-reverting to 100.
         self._index = _clamp(
-            self._walk(self._index, 100.0, vol=0.004, reversion=0.05), 95.0, 115.0
+            self._walk(self._index, 100.0, vol=0.003, reversion=0.04), 92.0, 118.0
         )
 
-        # Drift the risk score, nudged upward when the index runs hot.
-        index_pressure = (self._index - 100.0) * 0.4
+        # Drift risk score, nudged by index.
+        index_pressure = (self._index - 100.0) * 0.3
         self._risk = _clamp(
-            self._risk + self._rng.gauss(index_pressure * 0.05, 0.8), 0.0, 100.0
+            self._risk + self._rng.gauss(index_pressure * 0.04, 0.6), 0.0, 100.0
         )
 
-        # Rotate the headline roughly every 10 ticks.
         if self._tick_count % 10 == 0:
             self._headline_idx = (self._headline_idx + 1) % len(_HEADLINES)
 
         return self._build_snapshot()
 
     def snapshot(self) -> dict[str, Any]:
-        """Return the current snapshot without advancing state (initial UI state)."""
+        """Return the current snapshot without advancing state."""
         return self._build_snapshot()
 
     def _build_snapshot(self) -> dict[str, Any]:
@@ -223,10 +232,14 @@ class MarketFeed:
             {
                 "name": name,
                 "price": round(self._prices[name], 2),
-                "change_pct": self._pct(self._prices[name], self._prev_prices.get(name, self._prices[name])),
-                "unit": _TOP_COMMODITY_UNITS[name],
+                "change_pct": self._pct(
+                    self._prices[name],
+                    self._prev_prices.get(name, self._prices[name]),
+                ),
+                "unit": _COMMODITY_UNITS.get(name, "USD"),
             }
-            for name in _TOP_COMMODITY_UNITS
+            for name in _TOP_COMMODITY_NAMES
+            if name in self._prices
         ]
 
         fx = [
@@ -239,7 +252,6 @@ class MarketFeed:
         ]
 
         risk_score = round(self._risk, 1)
-        # Active alerts grow with risk and headline severity.
         active_alerts = int(risk_score // 20) + (1 if self._index > 107 else 0)
 
         return {
@@ -253,27 +265,65 @@ class MarketFeed:
             "ebit_nowcast_gbp": self._ebit_nowcast(),
             "headline_insight": _HEADLINES[self._headline_idx],
             "active_alerts": active_alerts,
+            "data_source": "Yahoo Finance" if _is_real_data() else "Synthetic",
         }
+
+
+def _is_real_data() -> bool:
+    """True when data/raw/commodity_prices.csv is present (real yfinance data)."""
+    try:
+        from src.config import get_project_root
+        return (get_project_root() / "data" / "raw" / "commodity_prices.csv").exists()
+    except Exception:
+        return False
 
 
 @realtime_router.get("/realtime/snapshot")
 async def get_snapshot() -> dict[str, Any]:
-    """Return the current market snapshot (initial state for the UI)."""
+    """Current market snapshot (initial state for the UI)."""
     feed = MarketFeed()
     return feed.snapshot()
+
+
+@realtime_router.post("/realtime/refresh")
+async def refresh_market_data() -> dict[str, Any]:
+    """Force-refresh the commodity price cache (call after running fetch_data.py).
+
+    Re-seeds from the newest data/raw/commodity_prices.csv and clears the
+    MarketDataProvider in-memory cache so the next request pulls fresh data.
+    """
+    try:
+        from src.data.market_data_provider import get_latest_prices, invalidate_cache
+        invalidate_cache()
+        latest = get_latest_prices()
+        return {
+            "status": "refreshed",
+            "source": get_data_source_label(),
+            "latest_prices": latest,
+            "commodities": len(latest),
+        }
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc)}
+
+
+def get_data_source_label() -> str:
+    """Return human-readable label for the active market data source."""
+    try:
+        from src.data.market_data_provider import get_data_source_label as _label
+        return _label()
+    except Exception:
+        return "Unknown"
 
 
 @realtime_router.websocket("/ws/market")
 async def ws_market(websocket: WebSocket) -> None:
     """Live market tape over WebSocket.
 
-    On connect, immediately sends the snapshot, then pushes an updated tick every
-    ``interval`` seconds (query param, default 2.0, clamped to 0.5–10). Robust to
-    bad ticks (per-tick try/except) and to client disconnects.
+    Sends an initial snapshot immediately on connect, then pushes a new tick
+    every ``interval`` seconds (query param, default 2.0, clamped 0.5–10).
     """
     await websocket.accept()
 
-    # Parse + clamp the interval query param defensively.
     interval = 2.0
     raw_interval = websocket.query_params.get("interval")
     if raw_interval is not None:
@@ -283,24 +333,22 @@ async def ws_market(websocket: WebSocket) -> None:
             interval = 2.0
 
     feed = MarketFeed()
-    logger.info("realtime: client connected (interval={:.1f}s)", interval)
+    logger.info(f"realtime: client connected (interval={interval:.1f}s, real_data={_is_real_data()})")
 
     try:
-        # Send the initial snapshot immediately.
         await websocket.send_json(feed.snapshot())
-
         while True:
             await asyncio.sleep(interval)
             try:
                 tick = feed.next_tick()
-            except Exception as exc:  # one bad tick must not kill the socket
-                logger.warning("realtime: tick generation failed ({}); skipping", exc)
+            except Exception as exc:
+                logger.warning(f"realtime: tick error ({exc}); skipping")
                 continue
             await websocket.send_json(tick)
     except WebSocketDisconnect:
         logger.info("realtime: client disconnected")
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.warning("realtime: websocket loop error ({})", exc)
+    except Exception as exc:
+        logger.warning(f"realtime: websocket loop error ({exc})")
         try:
             await websocket.close()
         except Exception:
