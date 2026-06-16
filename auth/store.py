@@ -21,7 +21,13 @@ from auth.security import hash_password, verify_password
 
 logger = logging.getLogger("auth")
 
-_STORE_PATH = Path(__file__).resolve().parent / "users.json"
+def _resolve_store_path() -> Path:
+    preferred = Path(__file__).resolve().parent / "users.json"
+    if os.access(str(preferred.parent), os.W_OK):
+        return preferred
+    return Path("/tmp/gic_users.json")
+
+_STORE_PATH = _resolve_store_path()
 
 # Demo seed accounts (plaintext passwords used ONLY to derive hashes at seed time).
 _DEMO_USERS = [

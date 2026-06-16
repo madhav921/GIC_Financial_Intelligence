@@ -24,8 +24,14 @@ class AuditTrail:
 
     def __init__(self):
         settings = get_settings()
-        self.audit_dir = get_project_root() / settings["paths"]["audit_trail"]
-        self.audit_dir.mkdir(parents=True, exist_ok=True)
+        preferred = get_project_root() / settings["paths"]["audit_trail"]
+        try:
+            preferred.mkdir(parents=True, exist_ok=True)
+            self.audit_dir = preferred
+        except OSError:
+            # Read-only filesystem (e.g. Vercel serverless) — use /tmp
+            self.audit_dir = Path("/tmp/gic_audit")
+            self.audit_dir.mkdir(parents=True, exist_ok=True)
         self._log_file = self.audit_dir / "audit_log.jsonl"
 
     def _write_entry(self, entry: dict[str, Any]) -> str:
