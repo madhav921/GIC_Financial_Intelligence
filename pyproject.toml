@@ -45,6 +45,7 @@ full = [
     "scipy>=1.11.0",
     "statsmodels>=0.14.0",
     "yfinance>=0.2.36",
+    "truststore>=0.9.1",
     "ccxt>=4.2.0",
     "ffn>=1.0.0",
     "fredapi>=0.5.1",

@@ -11,10 +11,62 @@ Fetches real market data for JLR commodity forecasting:
 
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import polars as pl
 import yfinance as yf
 from loguru import logger
+
+
+def _make_yf_session():
+    """Return a requests.Session with robust SSL handling.
+
+    Priority:
+    1. truststore  — injects OS cert store (fixes corporate MITM / self-signed CA certs)
+    2. certifi     — bundled Mozilla CA certs (upgraded separately from Python)
+    3. plain       — Python default (may fail on machines with stale certs)
+    4. SSL_VERIFY=false env var — disables verification entirely (last resort only)
+    """
+    import requests
+
+    session = requests.Session()
+
+    if os.environ.get("SSL_VERIFY", "").lower() in ("false", "0", "no"):
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        session.verify = False
+        logger.warning("yfinance: SSL verification disabled via SSL_VERIFY=false")
+        return session
+
+    # Best fix for corporate environments: use the OS certificate store.
+    try:
+        import truststore
+        truststore.inject_into_ssl()
+        logger.debug("yfinance: SSL using system certificate store (truststore)")
+        return session
+    except ImportError:
+        pass
+
+    # Fall back to the certifi bundle (run `pip install --upgrade certifi` if stale).
+    try:
+        import certifi
+        session.verify = certifi.where()
+        logger.debug(f"yfinance: SSL using certifi bundle ({certifi.where()})")
+    except ImportError:
+        pass
+
+    return session
+
+
+_YF_SESSION = None
+
+
+def _get_session():
+    global _YF_SESSION
+    if _YF_SESSION is None:
+        _YF_SESSION = _make_yf_session()
+    return _YF_SESSION
 
 
 # ── 12 JLR Commodities — best available yfinance tickers ────────────────
@@ -86,7 +138,7 @@ def _fetch_yfinance_batch(
     ticker_to_name = {v: k for k, v in ticker_map.items()}
 
     try:
-        data = yf.download(all_tickers, period=period, interval=interval, progress=False)
+        data = yf.download(all_tickers, period=period, interval=interval, progress=False, session=_get_session())
         if data.empty:
             logger.warning(f"No data returned from Yahoo Finance for {label}")
             return pl.DataFrame()
@@ -125,7 +177,7 @@ def fetch_commodity_prices(period: str = "7y", interval: str = "1mo") -> pl.Data
     ticker_list = sorted(tickers)
 
     try:
-        raw = yf.download(ticker_list, period=period, interval=interval, progress=False)
+        raw = yf.download(ticker_list, period=period, interval=interval, progress=False, session=_get_session())
         if raw.empty:
             logger.warning("No commodity data returned from Yahoo Finance")
             return pl.DataFrame()
@@ -178,7 +230,7 @@ def fetch_macro_from_yfinance(period: str = "7y", interval: str = "1mo") -> pl.D
     tickers = list(set(macro_map.values()))
 
     try:
-        raw = yf.download(tickers, period=period, interval=interval, progress=False)
+        raw = yf.download(tickers, period=period, interval=interval, progress=False, session=_get_session())
         if raw.empty:
             logger.warning("No macro data returned from Yahoo Finance")
             return pl.DataFrame()
@@ -216,7 +268,7 @@ def fetch_fx_rates(period: str = "7y", interval: str = "1mo") -> pl.DataFrame:
 
 def fetch_single_ticker(ticker: str, period: str = "5y", interval: str = "1d") -> pl.DataFrame:
     try:
-        t = yf.Ticker(ticker)
+        t = yf.Ticker(ticker, session=_get_session())
         hist = t.history(period=period, interval=interval)
         if hist.empty:
             return pl.DataFrame()

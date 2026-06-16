@@ -94,10 +94,18 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS
+    # CORS — env var CORS_ORIGINS (comma-separated) overrides settings.yaml.
+    # Set this in Vercel project settings to your frontend URL.
+    import os as _os
+    _env_origins = _os.environ.get("CORS_ORIGINS", "")
+    cors_origins = (
+        [o.strip() for o in _env_origins.split(",") if o.strip()]
+        if _env_origins
+        else settings["api"]["cors_origins"]
+    )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings["api"]["cors_origins"],
+        allow_origins=cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

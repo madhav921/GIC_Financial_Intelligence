@@ -151,10 +151,11 @@ def _seed_fx_from_real_data() -> dict[str, float]:
 
     try:
         import yfinance as yf
+        from src.data.connectors.yfinance_connector import _get_session as _yf_session
         tickers = {"GBP/USD": "GBPUSD=X", "EUR/USD": "EURUSD=X", "USD/CNY": "USDCNY=X"}
         fx: dict[str, float] = {}
         for pair, ticker in tickers.items():
-            t = yf.Ticker(ticker)
+            t = yf.Ticker(ticker, session=_yf_session())
             hist = t.history(period="5d")
             if not hist.empty:
                 fx[pair] = round(float(hist["Close"].iloc[-1]), 4)
@@ -383,8 +384,9 @@ async def get_market_indices() -> dict[str, Any]:
 
     try:
         import yfinance as yf
+        from src.data.connectors.yfinance_connector import _get_session as _yf_session
         ticker_list = list(_INDICES_META.keys())
-        raw = yf.download(ticker_list, period="5d", interval="1d", progress=False)
+        raw = yf.download(ticker_list, period="5d", interval="1d", progress=False, session=_yf_session())
 
         if not raw.empty:
             close = raw["Close"] if isinstance(raw.columns, _pd.MultiIndex) else raw
@@ -461,8 +463,9 @@ async def get_fx_history() -> dict[str, Any]:
 
     try:
         import yfinance as yf
+        from src.data.connectors.yfinance_connector import _get_session as _yf_session
         ticker_list = list(_FX_TICKERS.values())
-        raw = yf.download(ticker_list, period="35d", interval="1d", progress=False)
+        raw = yf.download(ticker_list, period="35d", interval="1d", progress=False, session=_yf_session())
 
         if not raw.empty:
             close = raw["Close"] if isinstance(raw.columns, _pd.MultiIndex) else raw
