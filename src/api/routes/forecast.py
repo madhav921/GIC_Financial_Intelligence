@@ -45,6 +45,27 @@ async def forecast_commodity(request: CommodityForecastRequest):
             metrics=metrics,
         )
 
+        # Generate JLR CFO narrative using pipeline cache data for exposure context.
+        narrative = None
+        try:
+            from src.api.pipeline_cache import get_snapshot
+            from layers.layer5_governance.llm_engine import GICLLMEngine, _COMMODITY_CONTEXT
+            snap = get_snapshot()
+            fc_data = (snap.get("forecasts") or {}).get(request.commodity, {})
+            ctx = _COMMODITY_CONTEXT.get(request.commodity, {})
+            drivers = ctx.get("drivers", list((result.feature_importance or {}).keys())[:3])
+            narrative = GICLLMEngine().explain_forecast(
+                commodity=request.commodity,
+                forecast_pct=fc_data.get("forecast_pct", 0.0),
+                drivers=drivers,
+                exposure_gbp=fc_data.get("exposure_gbp", 0.0),
+                hedge_ratio=fc_data.get("hedge_ratio", 0.40),
+                mape=metrics.get("cv_mape_mean") or metrics.get("mape"),
+            )
+        except Exception as _narr_exc:
+            import logging as _l
+            _l.getLogger(__name__).debug(f"Narrative generation skipped: {_narr_exc}")
+
         return CommodityForecastResponse(
             commodity=result.commodity,
             model_type=result.model_type,
@@ -55,6 +76,7 @@ async def forecast_commodity(request: CommodityForecastRequest):
             lower_95=result.lower_95,
             upper_95=result.upper_95,
             metrics=metrics,
+            narrative=narrative,
         )
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))

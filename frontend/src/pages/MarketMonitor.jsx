@@ -1,68 +1,124 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import Badge from '../components/common/Badge';
 import Sparkline from '../components/Charts/Sparkline';
 import LockedButton from '../components/common/LockedButton';
 import { PERMISSIONS } from '../auth/permissions';
 import { useRealtimeContext } from '../context/RealtimeContext';
+import { gicApi } from '../api/client';
 
-// Reference-only static data — market indices and macro indicators that update
-// weekly/monthly and are not served by the realtime WebSocket. Commodity prices
-// and FX rates are replaced by the live backend feed when connected.
+// Fallback index values shown when backend is unreachable.
 const STATIC_INDICES = [
-  { name: 'S&P 500',         value: 4783.45, change: 1.21,  ticker: 'SPX',   currency: '' },
-  { name: 'VIX',             value: 14.82,   change: -5.34, ticker: 'VIX',   currency: '' },
-  { name: 'Gold',            value: 2048.30, change: 0.82,  ticker: 'GC=F',  currency: '$' },
-  { name: 'Oil (Brent)',     value: 79.18,   change: -0.87, ticker: 'BZ=F',  currency: '$' },
-  { name: 'EURO STOXX Auto', value: 487.32,  change: -1.24, ticker: 'SX7P',  currency: '' },
-  { name: '10Y Gilt',        value: 4.38,    change: 0.04,  ticker: 'GBPGBP=', currency: '%' },
+  { name: 'Gold',            ticker: 'GC=F',  currency: '$', value: 3250.0, change: 0.0 },
+  { name: 'S&P 500',         ticker: '^GSPC', currency: '',  value: 5800.0, change: 0.0 },
+  { name: 'VIX',             ticker: '^VIX',  currency: '',  value: 16.5,   change: 0.0 },
+  { name: 'Oil (WTI)',       ticker: 'CL=F',  currency: '$', value: 72.0,   change: 0.0 },
+  { name: '10Y Yield',       ticker: '^TNX',  currency: '%', value: 4.35,   change: 0.0 },
+  { name: 'EURO STOXX Auto', ticker: 'SX7P',  currency: '',  value: 487.32, change: -1.24, isStatic: true },
 ];
 
 const STATIC_MACRO = [
-  { indicator: 'BoE Base Rate',   value: '5.00%',   source: 'BoE',  series: 'IUDSOIA' },
-  { indicator: 'UK CPI YoY',      value: '2.8%',    source: 'ONS',  series: 'D7G7' },
-  { indicator: 'UK PPI Output',   value: '1.2%',    source: 'ONS',  series: 'MM23' },
-  { indicator: 'EU Industrial Prod.', value: '99.6', source: 'Eurostat', series: 'STS_INPR_M' },
-  { indicator: 'DXY Index',       value: '104.8',   source: 'FRED', series: 'DX-Y.NYB' },
-  { indicator: 'UK Unemployment', value: '4.2%',    source: 'ONS',  series: 'LFS' },
+  { indicator: 'BoE Base Rate',       value: '4.25%',  source: 'BoE',      series: 'IUDSOIA' },
+  { indicator: 'UK CPI YoY',          value: '3.5%',   source: 'ONS',      series: 'D7G7' },
+  { indicator: 'UK PPI Output',        value: '1.8%',   source: 'ONS',      series: 'MM23' },
+  { indicator: 'EU Industrial Prod.',  value: '99.2',   source: 'Eurostat', series: 'STS_INPR_M' },
+  { indicator: 'DXY Index',            value: '99.8',   source: 'FRED',     series: 'DX-Y.NYB' },
+  { indicator: 'UK Unemployment',      value: '4.5%',   source: 'ONS',      series: 'LFS' },
 ];
 
-// Fallback commodity tiles used when the backend is unreachable.
 const FALLBACK_COMMODITIES = [
-  { name: 'LME Aluminum', symbol: 'Al', price: 2318, unit: '$/t',   change: -0.54, source: 'LME' },
-  { name: 'LME Copper',   symbol: 'Cu', price: 9184, unit: '$/t',   change: 0.72,  source: 'LME' },
-  { name: 'LME Steel HRC',symbol: 'St', price: 588,  unit: '£/t',   change: -1.12, source: 'LME' },
-  { name: 'Lithium Carb.',symbol: 'Li', price: 12450, unit: '$/t',  change: -2.31, source: 'Fastmarkets' },
-  { name: 'Cobalt',       symbol: 'Co', price: 26800, unit: '$/t',  change: 1.05,  source: 'LME' },
-  { name: 'TTF Gas',      symbol: 'Gas',price: 34.72, unit: '€/MWh',change: 3.18,  source: 'ICE' },
+  { name: 'LME Aluminum', symbol: 'Al', price: 2490,  unit: '$/t',   change: 0.0, source: 'LME ref' },
+  { name: 'LME Copper',   symbol: 'Cu', price: 9650,  unit: '$/t',   change: 0.0, source: 'LME ref' },
+  { name: 'LME Steel HRC',symbol: 'St', price: 480,   unit: '$/t',   change: 0.0, source: 'LME ref' },
+  { name: 'Lithium Carb.',symbol: 'Li', price: 10200, unit: '$/t',   change: 0.0, source: 'Fastmarkets ref' },
+  { name: 'Cobalt',       symbol: 'Co', price: 24500, unit: '$/t',   change: 0.0, source: 'LME ref' },
+  { name: 'TTF Gas',      symbol: 'Gas',price: 35.0,  unit: '€/MWh', change: 0.0, source: 'ICE ref' },
 ];
 
-// FX pairs not in the backend feed — shown as static reference.
-const STATIC_FX_EXTRA = [
-  { pair: 'GBP/EUR', rate: 1.1682, change: 0.18 },
-  { pair: 'USD/JPY', rate: 149.21, change: 0.52 },
-];
-
-// Stable 14-point sparkline series for static/fallback tiles.
-function sparkSeries(seed, change) {
-  let s = seed % 2147483647;
-  if (s <= 0) s += 2147483646;
-  const rnd = () => ((s = (s * 16807) % 2147483647) - 1) / 2147483646;
-  const out = [];
-  let v = 100;
-  for (let i = 0; i < 13; i++) {
-    v += (rnd() - 0.5) * 3;
-    out.push(v);
+// Extract numeric price array from various commodity history response shapes.
+function extractPrices(data, apiName) {
+  if (!data) return [];
+  const hist = data.history;
+  if (!hist) return [];
+  if (Array.isArray(hist)) {
+    return hist.map(h => Number(h.price ?? h.value ?? h[apiName] ?? 0)).filter(v => v > 0);
   }
-  out.push(v + change);
-  return out;
+  if (typeof hist === 'object') {
+    return Object.values(hist).map(Number).filter(v => v > 0);
+  }
+  return [];
 }
 
-function ChangeCell({ change }) {
+// Deterministic LCG seed → 28-point buffer scaled around anchorValue.
+// vol is a fraction of anchorValue (e.g. 0.0012 = 0.12% per step).
+function makeSeedBuffer(seed, anchorValue, vol, points = 28) {
+  let s = (Math.abs(seed * 16807 + 1337) % 2147483647) || 1;
+  const rnd = () => ((s = (s * 16807) % 2147483647) - 1) / 2147483646;
+  const arr = [];
+  let v = anchorValue;
+  for (let i = 0; i < points; i++) {
+    v += (rnd() - 0.5) * Math.abs(anchorValue) * vol * 3;
+    arr.push(v);
+  }
+  return arr;
+}
+
+/**
+ * Maintains a rolling 28-point buffer that ticks forward every `intervalMs` ms
+ * using a slow Ornstein-Uhlenbeck mean-reverting walk.
+ * Re-seeds itself if the anchor changes by >3% (e.g. fallback → real price loads).
+ */
+function useLiveSparkline(anchorValue, {
+  vol = 0.0012,
+  reversion = 0.015,
+  intervalMs = 4000,
+  points = 28,
+  seed = 0,
+} = {}) {
+  const [buffer, setBuffer] = useState(() => makeSeedBuffer(seed, anchorValue, vol, points));
+
+  const anchorRef = useRef(anchorValue);
+  anchorRef.current = anchorValue;
+
+  const prevAnchorRef = useRef(anchorValue);
+
+  // If the anchor jumps >3% (e.g. real data arrives), re-seed so the sparkline
+  // doesn't look wrong while mean-reverting across a large gap.
+  useEffect(() => {
+    const prev = prevAnchorRef.current;
+    if (prev === 0) { prevAnchorRef.current = anchorValue; return; }
+    const pct = Math.abs(anchorValue - prev) / Math.abs(prev);
+    if (pct > 0.03) {
+      prevAnchorRef.current = anchorValue;
+      setBuffer(makeSeedBuffer(seed, anchorValue, vol, points));
+    }
+  }, [anchorValue, seed, vol, points]);
+
+  // Tick the buffer forward every intervalMs.
+  useEffect(() => {
+    const id = setInterval(() => {
+      const anchor = anchorRef.current;
+      setBuffer(prev => {
+        const last = prev[prev.length - 1];
+        const drift = reversion * (anchor - last);
+        const noise = (Math.random() - 0.5) * Math.abs(anchor) * vol * 2;
+        const next = last + drift + noise;
+        return [...prev.slice(1), next];
+      });
+    }, intervalMs);
+    return () => clearInterval(id);
+  }, [vol, reversion, intervalMs]);
+
+  return buffer;
+}
+
+// ChangeCell — shows arrow + % + small interval label for commodity tiles.
+function ChangeCell({ change, label }) {
   const color = change > 0 ? 'text-green-400' : change < 0 ? 'text-red-400' : 'text-slate-400';
   const arrow = change > 0 ? '▲' : change < 0 ? '▼' : '—';
   return (
-    <span className={`${color} font-medium text-sm`}>
+    <span className={`${color} font-medium text-sm whitespace-nowrap`}>
       {arrow} {Math.abs(change).toFixed(2)}%
+      {label && <span className="text-slate-500 text-[10px] font-normal ml-1">{label}</span>}
     </span>
   );
 }
@@ -79,73 +135,251 @@ function SectionCard({ title, badge, badgeColor, children }) {
   );
 }
 
-function TileSpark({ seed, change }) {
-  const series = React.useMemo(() => sparkSeries(seed, change), [seed, change]);
-  return <Sparkline data={series} color={change >= 0 ? '#22c55e' : '#ef4444'} width={88} height={26} />;
+// Market index tile — animated sparkline (seeded, slow O-U walk, updates ~4s).
+// Real 1d change from Yahoo Finance shown below the value as a reference.
+function IndexTile({ idx, tileIndex }) {
+  const seed = idx.ticker.split('').reduce((acc, c, i) => acc * 31 + c.charCodeAt(0) + i, tileIndex + 1);
+  const sparkData = useLiveSparkline(idx.value, {
+    vol: 0.0012,
+    reversion: 0.015,
+    intervalMs: 4000,
+    points: 28,
+    seed,
+  });
+  const isUp = sparkData.length >= 2
+    ? sparkData[sparkData.length - 1] >= sparkData[sparkData.length - 2]
+    : true;
+
+  return (
+    <div className="rounded-lg p-3 border border-slate-700 transition-colors hover:border-slate-500" style={{ backgroundColor: '#0f172a' }}>
+      <div className="mb-1">
+        <p className="text-xs text-slate-400 font-mono">
+          {idx.ticker}
+          {idx.isLive && <span className="ml-1.5 text-[9px] text-green-500 font-bold">●</span>}
+          {idx.isStatic && <span className="ml-1.5 text-[9px] text-yellow-500">ref</span>}
+        </p>
+        <p className="text-sm font-medium text-slate-200">{idx.name}</p>
+      </div>
+      <div className="flex items-end justify-between">
+        <div>
+          <p className="text-xl font-bold text-white">
+            {idx.currency !== '%' && idx.currency}
+            {idx.value.toLocaleString('en-GB', { minimumFractionDigits: 2 })}
+            {idx.currency === '%' && '%'}
+          </p>
+          {/* Real 1d change from Yahoo Finance — shown for reference only */}
+          <p className="text-[10px] mt-0.5 flex items-center gap-1">
+            <span className="text-slate-500">1d</span>
+            {idx.isLive ? (
+              <span className={idx.change > 0 ? 'text-green-400' : idx.change < 0 ? 'text-red-400' : 'text-slate-400'}>
+                {idx.change > 0 ? '+' : ''}{idx.change.toFixed(2)}%
+              </span>
+            ) : idx.isStatic ? (
+              <span className={idx.change > 0 ? 'text-green-400' : idx.change < 0 ? 'text-red-400' : 'text-slate-400'}>
+                {idx.change > 0 ? '+' : ''}{idx.change.toFixed(2)}%
+                <span className="text-slate-600 ml-1">ref</span>
+              </span>
+            ) : (
+              <span className="text-slate-600">— ref</span>
+            )}
+            {idx.isLive && <span className="text-slate-600">· YF</span>}
+          </p>
+        </div>
+        <Sparkline data={sparkData} color={isUp ? '#22c55e' : '#ef4444'} width={88} height={28} />
+      </div>
+      {idx.asOf && idx.asOf !== 'reference' && (
+        <p className="text-[9px] text-slate-600 mt-0.5">Close: {idx.asOf}</p>
+      )}
+    </div>
+  );
 }
 
-// Spark from realtime history — just use last 14 values of a mean-reverting walk
-// seeded from the current price and change direction.
-function LiveSpark({ price, change }) {
-  const series = React.useMemo(() => {
-    const seed = Math.round(price * 7 + change * 100);
-    return sparkSeries(seed, change);
-  }, [price, change]);
-  return <Sparkline data={series} color={change >= 0 ? '#22c55e' : '#ef4444'} width={88} height={26} />;
+// FX table row — animated sparkline + real 1d % shown below the rate.
+function FxRow({ fx, rowIndex }) {
+  const seed = fx.pair.split('').reduce((acc, c, i) => acc * 31 + c.charCodeAt(0) + i, rowIndex + 100);
+  const sparkData = useLiveSparkline(fx.rate, {
+    vol: 0.0006,
+    reversion: 0.02,
+    intervalMs: 4000,
+    points: 28,
+    seed,
+  });
+  const isUp = fx.change >= 0;
+
+  return (
+    <tr className="border-b border-slate-800">
+      <td className="py-2 text-slate-200 font-medium text-sm">
+        {fx.pair}
+        {fx.isLive && <span className="ml-1.5 text-[9px] text-green-500 font-bold">●</span>}
+      </td>
+      <td className="py-2 text-right">
+        <div className="text-white font-mono text-sm">{fx.rate.toFixed(4)}</div>
+        {/* Real 1d change from Yahoo Finance shown below rate as reference */}
+        {fx.changeLabel !== 'ref' ? (
+          <div className="text-[9px] text-slate-500">
+            1d{' '}
+            <span className={fx.change > 0 ? 'text-green-400' : fx.change < 0 ? 'text-red-400' : 'text-slate-400'}>
+              {fx.change > 0 ? '+' : ''}{fx.change.toFixed(3)}%
+            </span>
+            <span className="text-slate-600 ml-1">· YF</span>
+          </div>
+        ) : (
+          <div className="text-[9px] text-slate-600">ref</div>
+        )}
+      </td>
+      <td className="py-2">
+        <div className="flex justify-center">
+          <Sparkline data={sparkData} color={isUp ? '#22c55e' : '#ef4444'} width={88} height={26} />
+        </div>
+      </td>
+    </tr>
+  );
 }
 
 export default function MarketMonitor() {
   const { snapshot, connected, source } = useRealtimeContext();
   const [lastUpdated, setLastUpdated] = useState(new Date());
+  const [liveIndices, setLiveIndices] = useState(null);
+  const [indicesSource, setIndicesSource] = useState('loading');
+  const [indicesNote, setIndicesNote] = useState('');
+
+  // Real monthly history per commodity (fetched once for MoM sparklines).
+  const [commodityHistories, setCommodityHistories] = useState({});
+  // Real 30-day FX history from Yahoo Finance (1d change reference only).
+  const [fxHistoryData, setFxHistoryData] = useState(null);
+  const histFetched = useRef(false);
 
   useEffect(() => {
     if (snapshot) setLastUpdated(new Date());
   }, [snapshot]);
 
-  // Backend-reported data source — "Yahoo Finance" or "Synthetic"
+  // Fetch real commodity monthly history once when first snapshot arrives.
+  useEffect(() => {
+    if (!snapshot?.top_commodities?.length || histFetched.current) return;
+    histFetched.current = true;
+    for (const c of snapshot.top_commodities) {
+      const apiName = c.name.replace(/ /g, '_');
+      gicApi.getCommodityHistory(apiName, 24)
+        .then(data => {
+          const prices = extractPrices(data, apiName);
+          if (prices.length) {
+            setCommodityHistories(prev => ({ ...prev, [c.name]: prices }));
+          }
+        })
+        .catch(() => {});
+    }
+  }, [snapshot?.top_commodities]);
+
+  // On mount: fetch live indices and real FX 1d reference data.
+  useEffect(() => {
+    gicApi.getMarketIndices()
+      .then(data => {
+        setLiveIndices(data.indices || []);
+        setIndicesSource(data.data_source || 'Reference');
+        setIndicesNote(data.note || '');
+      })
+      .catch(() => setIndicesSource('Reference (backend offline)'));
+
+    gicApi.getFxHistory()
+      .then(data => setFxHistoryData(data))
+      .catch(() => {});
+  }, []);
+
+  // Merge live API data into STATIC_INDICES (keyed by ticker).
+  const displayIndices = useMemo(() => {
+    const liveMap = {};
+    if (liveIndices) {
+      for (const idx of liveIndices) liveMap[idx.ticker] = idx;
+    }
+    return STATIC_INDICES.map(s => {
+      const live = liveMap[s.ticker];
+      if (live) {
+        return { ...s, value: live.value, change: live.change_pct, asOf: live.as_of, isLive: true };
+      }
+      return { ...s, isLive: false };
+    });
+  }, [liveIndices]);
+
+  const indicesIsLive = indicesSource.includes('Yahoo Finance');
+  const indicesBadge = indicesSource === 'loading' ? 'Loading…' : indicesIsLive ? 'Live' : 'Reference';
+  const indicesBadgeColor = indicesIsLive ? 'green' : 'yellow';
+
   const backendDataSource = snapshot?.data_source || (source === 'live' ? 'Yahoo Finance' : 'Simulated');
 
-  // Commodity tiles: prefer live backend feed, fall back to static
-  const commodityTiles = React.useMemo(() => {
+  // Commodity tiles: live price (ticks every 2s) + real MoM change from historical data.
+  const commodityTiles = useMemo(() => {
     if (snapshot?.top_commodities?.length) {
-      return snapshot.top_commodities.map((c) => ({
-        name: c.name,
-        symbol: c.name.slice(0, 2).toUpperCase(),
-        price: c.price,
-        unit: c.unit || 'USD/t',
-        change: c.change_pct,
-        source: backendDataSource,
-        isLive: true,
-      }));
+      return snapshot.top_commodities.map(c => {
+        const hist = commodityHistories[c.name] || [];
+        let momChange = 0;
+        const changeLabel = hist.length >= 2 ? 'MoM' : 'ref';
+        if (hist.length >= 2) {
+          const last = hist[hist.length - 1];
+          const prev = hist[hist.length - 2];
+          momChange = prev > 0 ? parseFloat(((last - prev) / prev * 100).toFixed(2)) : 0;
+        }
+        return {
+          name: c.name,
+          symbol: c.name.slice(0, 2).toUpperCase(),
+          price: c.price,
+          unit: c.unit || 'USD/t',
+          change: momChange,
+          changeLabel,
+          sparkData: hist,
+          source: backendDataSource,
+          isLive: true,
+        };
+      });
     }
-    return FALLBACK_COMMODITIES.map((c) => ({ ...c, isLive: false }));
-  }, [snapshot, source, backendDataSource]);
+    return FALLBACK_COMMODITIES.map(c => ({ ...c, changeLabel: 'ref', isLive: false, sparkData: [] }));
+  }, [snapshot?.top_commodities, backendDataSource, commodityHistories]);
 
-  // FX rates: merge live feed (3 pairs) with static extras (2 pairs)
-  const fxRows = React.useMemo(() => {
-    if (!snapshot?.fx?.length) {
-      return [
-        { pair: 'GBP/USD', rate: 1.2734, change: 0.31 },
-        { pair: 'GBP/EUR', rate: 1.1682, change: 0.18 },
-        { pair: 'EUR/USD', rate: 1.0891, change: -0.14 },
-        { pair: 'USD/JPY', rate: 149.21, change: 0.52 },
-        { pair: 'USD/CNY', rate: 7.1853, change: -0.18 },
-      ];
+  // FX rows: live rate from WebSocket + real 1d % reference from Yahoo Finance.
+  const fxRows = useMemo(() => {
+    const histPairs = fxHistoryData?.pairs || {};
+    const liveFx = {};
+    if (snapshot?.fx?.length) {
+      for (const f of snapshot.fx) liveFx[f.pair] = f.rate;
     }
-    const liveMap = Object.fromEntries(
-      snapshot.fx.map((f) => [f.pair, { pair: f.pair, rate: f.rate, change: f.change_pct, isLive: true }])
-    );
+
+    const makeRow = (pair, fallbackRate) => {
+      const hData = histPairs[pair];
+      const rate = liveFx[pair] ?? hData?.history?.[hData.history.length - 1]?.rate ?? fallbackRate;
+      const change1d = hData?.change_1d_pct ?? 0;
+      const changeLabel = hData ? '1d' : 'ref';
+      const isLive = !!(liveFx[pair] || hData);
+      return { pair, rate, change: change1d, changeLabel, isLive };
+    };
+
     return [
-      liveMap['GBP/USD'] || { pair: 'GBP/USD', rate: 1.2734, change: 0.31 },
-      STATIC_FX_EXTRA[0],
-      liveMap['EUR/USD'] || { pair: 'EUR/USD', rate: 1.0891, change: -0.14 },
-      { pair: 'USD/JPY', rate: 149.21, change: 0.52 },
-      liveMap['USD/CNY'] || { pair: 'USD/CNY', rate: 7.1853, change: -0.18 },
+      makeRow('GBP/USD', 1.3426),
+      { pair: 'GBP/EUR', rate: 1.1563, change: 0, changeLabel: 'ref', isLive: false },
+      makeRow('EUR/USD', 1.1612),
+      { pair: 'USD/JPY', rate: 147.20, change: 0, changeLabel: 'ref', isLive: false },
+      makeRow('USD/CNY', 6.7557),
     ];
-  }, [snapshot]);
+  }, [snapshot?.fx, fxHistoryData]);
 
+  const fxSource = fxHistoryData?.data_source || (source === 'live' ? 'Yahoo Finance' : 'Reference');
+  const fxIsLive = fxSource.includes('Yahoo Finance');
   const dataSourceLabel = source === 'live' ? 'Live' : 'Simulated';
   const dataSourceColor = source === 'live' ? 'green' : 'yellow';
+
+  const handleRefresh = () => {
+    setIndicesSource('loading');
+    gicApi.refreshMarketData().catch(() => {});
+    gicApi.getMarketIndices()
+      .then(data => {
+        setLiveIndices(data.indices || []);
+        setIndicesSource(data.data_source || 'Reference');
+        setIndicesNote(data.note || '');
+      })
+      .catch(() => setIndicesSource('Reference'));
+    gicApi.getFxHistory()
+      .then(data => setFxHistoryData(data))
+      .catch(() => {});
+    setLastUpdated(new Date());
+  };
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -166,7 +400,7 @@ export default function MarketMonitor() {
           </div>
           <LockedButton
             permission={PERMISSIONS.TRIGGER_DATA_FETCH}
-            onClick={() => setLastUpdated(new Date())}
+            onClick={handleRefresh}
             lockedLabel="Refresh live data"
             lockHint="Fetching live market data requires Administrator access"
             className="text-sm"
@@ -178,74 +412,65 @@ export default function MarketMonitor() {
 
       {/* Data source strip */}
       <div className="rounded-lg px-4 py-2 text-xs text-slate-400 border border-slate-700 flex flex-wrap items-center gap-3" style={{ backgroundColor: '#1e293b' }}>
-        <span>Commodity & FX feed:</span>
+        <span>Commodity price feed:</span>
         <Badge label={dataSourceLabel} color={dataSourceColor} />
         {source === 'live' ? (
           <>
             <span className="text-green-400">
-              WebSocket connected · Prices seeded from <strong>{backendDataSource}</strong> and mean-reverting every 2s
+              WebSocket connected · Prices from <strong>{backendDataSource}</strong>, mean-reverting every 2s
             </span>
             <span className="text-slate-500">
-              · Prices are ETF/futures proxies (SLX→Steel, LIT→Lithium, HG=F→Copper, etc.) in model units
+              · ETF/futures proxies (SLX→Steel, LIT→Lithium, HG=F→Copper) · Commodity change% = real MoM
             </span>
           </>
         ) : (
-          <span className="text-yellow-400">Backend offline — client-side simulator active. Run <code className="text-blue-300 font-mono">uvicorn src.api.app:app --port 8000</code> for live data.</span>
+          <span className="text-yellow-400">
+            Backend offline — client-side simulator active. Run{' '}
+            <code className="text-blue-300 font-mono">uvicorn src.api.app:app --port 8000</code> for live data.
+          </span>
         )}
-        <span className="text-slate-600 ml-auto">Market indices &amp; macro: reference data (FRED / ONS / BoE)</span>
+        <span className="text-slate-600 ml-auto">
+          Indices & FX charts: animated simulation · 1d % = real Yahoo Finance · Macro: FRED / ONS / BoE
+        </span>
       </div>
 
-      {/* Market Indices — static reference data, updated weekly */}
-      <SectionCard title="Market Indices" badge="Reference" badgeColor="yellow">
-        <p className="text-xs text-slate-500 mb-3">Weekly reference snapshot — S&P 500, VIX, Gold, Oil, EURO STOXX</p>
+      {/* Market Indices — animated sparklines, real 1d % below value */}
+      <SectionCard title="Market Indices" badge={indicesBadge} badgeColor={indicesBadgeColor}>
+        <p className="text-xs text-slate-500 mb-3">
+          {indicesIsLive
+            ? (indicesNote || 'Prev close · Yahoo Finance') + ' · Chart animates live · 1d % shown below each value'
+            : indicesSource === 'loading'
+              ? 'Fetching from Yahoo Finance…'
+              : 'Reference values · Start backend for live prices · Charts animate for visual liveliness'}
+        </p>
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-          {STATIC_INDICES.map((idx, i) => (
-            <div key={i} className="rounded-lg p-3 border border-slate-700 transition-colors hover:border-slate-500" style={{ backgroundColor: '#0f172a' }}>
-              <div className="flex justify-between items-start">
-                <div>
-                  <p className="text-xs text-slate-400">{idx.ticker}</p>
-                  <p className="text-sm font-medium text-slate-200">{idx.name}</p>
-                </div>
-                <ChangeCell change={idx.change} />
-              </div>
-              <div className="flex items-end justify-between mt-1">
-                <p className="text-xl font-bold text-white">
-                  {idx.currency}{idx.value.toLocaleString('en-GB', { minimumFractionDigits: 2 })}
-                </p>
-                <TileSpark seed={idx.ticker.charCodeAt(0) * 131 + i} change={idx.change} />
-              </div>
-            </div>
+          {displayIndices.map((idx, i) => (
+            <IndexTile key={idx.ticker} idx={idx} tileIndex={i} />
           ))}
         </div>
       </SectionCard>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* FX Rates — live from WebSocket */}
-        <SectionCard title="FX Rates" badge={dataSourceLabel} badgeColor={dataSourceColor}>
+        {/* FX Rates — animated sparklines, real 1d % from Yahoo Finance below each rate */}
+        <SectionCard
+          title="FX Rates"
+          badge={fxIsLive ? 'Yahoo Finance' : dataSourceLabel}
+          badgeColor={fxIsLive ? 'green' : 'yellow'}
+        >
+          <p className="text-xs text-slate-500 mb-3">
+            Rate ticks live every 2s · Chart animates · 1d % shown below rate (Yahoo Finance)
+          </p>
           <table className="w-full text-sm">
             <thead>
               <tr className="text-slate-400 border-b border-slate-700 text-xs">
                 <th className="text-left pb-2">Pair</th>
                 <th className="text-right pb-2">Rate</th>
-                <th className="text-center pb-2">14d</th>
-                <th className="text-right pb-2">Change</th>
+                <th className="text-center pb-2">Live chart</th>
               </tr>
             </thead>
             <tbody>
               {fxRows.map((fx, i) => (
-                <tr key={i} className="border-b border-slate-800">
-                  <td className="py-2 text-slate-200 font-medium">
-                    {fx.pair}
-                    {fx.isLive && <span className="ml-1.5 text-[9px] text-green-500 font-bold">●</span>}
-                  </td>
-                  <td className="py-2 text-right text-white font-mono">{fx.rate.toFixed(4)}</td>
-                  <td className="py-2">
-                    <div className="flex justify-center">
-                      <LiveSpark price={fx.rate * 1000} change={fx.change} />
-                    </div>
-                  </td>
-                  <td className="py-2 text-right"><ChangeCell change={fx.change} /></td>
-                </tr>
+                <FxRow key={fx.pair} fx={fx} rowIndex={i} />
               ))}
             </tbody>
           </table>
@@ -268,9 +493,14 @@ export default function MarketMonitor() {
                   <td className="py-2 text-slate-200">{m.indicator}</td>
                   <td className="py-2 text-right text-white font-bold font-mono">{m.value}</td>
                   <td className="py-2 text-right">
-                    <Badge label={m.source} color={m.source === 'FRED' || m.source === 'BoE' || m.source === 'ONS' ? 'green' : 'blue'} />
+                    <Badge
+                      label={m.source}
+                      color={['FRED', 'BoE', 'ONS'].includes(m.source) ? 'green' : 'blue'}
+                    />
                   </td>
-                  <td className="py-2 text-right"><code className="text-xs text-blue-400">{m.series}</code></td>
+                  <td className="py-2 text-right">
+                    <code className="text-xs text-blue-400">{m.series}</code>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -278,11 +508,11 @@ export default function MarketMonitor() {
         </SectionCard>
       </div>
 
-      {/* Automotive Commodity Spot Prices — live from WebSocket */}
+      {/* Automotive Commodity Spot Prices — live price, real MoM change, real monthly sparkline */}
       <SectionCard title="Automotive Commodity Spot Prices" badge={dataSourceLabel} badgeColor={dataSourceColor}>
         <p className="text-xs text-slate-500 mb-3">
           {source === 'live'
-            ? `${backendDataSource} · ETF/futures proxies scaled to commodity units · Mean-reverting live simulation anchored to latest real prices`
+            ? `${backendDataSource} · ETF/futures proxies · Price ticks live every 2s · Change = real MoM from Yahoo Finance · Sparkline = real monthly history`
             : 'Simulated prices — run backend for Yahoo Finance live data'}
           {' · '}Key supply-chain inputs against GIC's £3.3B commodity basket
         </p>
@@ -297,7 +527,7 @@ export default function MarketMonitor() {
                   </p>
                   <p className="text-sm font-medium text-slate-200">{c.name}</p>
                 </div>
-                <ChangeCell change={c.change} />
+                <ChangeCell change={c.change} label={c.changeLabel} />
               </div>
               <div className="flex items-end justify-between mt-1">
                 <p className="text-xl font-bold text-white">
@@ -307,7 +537,11 @@ export default function MarketMonitor() {
                     {c.unit?.replace(/^[$£€]/, '')}
                   </span>
                 </p>
-                <LiveSpark price={c.price} change={c.change} />
+                <Sparkline
+                  data={c.sparkData.length >= 2 ? c.sparkData : [c.price, c.price]}
+                  color={c.change >= 0 ? '#22c55e' : '#ef4444'}
+                  width={88} height={26}
+                />
               </div>
             </div>
           ))}

@@ -72,6 +72,12 @@ except Exception as _e:
 async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
     setup_logging()
+    try:
+        from src.api.pipeline_cache import start_background_loop
+        start_background_loop()
+    except Exception as _cache_err:
+        import logging as _logging
+        _logging.getLogger(__name__).warning(f"Pipeline cache loop not started: {_cache_err}")
     yield
 
 

@@ -54,13 +54,21 @@ def _load_or_generate_warranty():
 # ── endpoints ─────────────────────────────────────────────────────────────────
 @insights_router.get("/feed")
 async def get_feed(top_n: int = 8):
-    """Prioritised InsightCard feed with summary stats (demo fallback)."""
+    """Prioritised InsightCard feed with summary stats (live data, demo fallback)."""
     try:
+        from src.api.pipeline_cache import get_snapshot
         from src.insights.insight_engine import InsightEngine
 
         engine = InsightEngine()
+        snap = get_snapshot()
+
         context: dict = {}
-        # Best-effort enrichment with real warranty data.
+        # Enrich with cached pipeline data (same source as every other route).
+        if snap.get("forecasts"):
+            context["forecasts"] = snap["forecasts"]
+        if snap.get("commodity_index_df") is not None:
+            context["commodity_index"] = snap["commodity_index_df"]
+        # Best-effort warranty enrichment.
         try:
             context["warranty_df"] = _load_or_generate_warranty()
         except Exception as exc:  # noqa: BLE001
@@ -109,11 +117,14 @@ async def get_variance_bridge():
 
 @insights_router.get("/early-warning")
 async def get_early_warning():
-    """Composite 0–100 cross-domain risk score."""
+    """Composite 0–100 cross-domain risk score (live commodity signals from pipeline cache)."""
     try:
+        from src.api.pipeline_cache import get_snapshot
         from src.insights.early_warning import EarlyWarningSystem
 
         ews = EarlyWarningSystem()
+        snap = get_snapshot()
+
         warranty_risk = None
         try:
             from src.models.warranty_model import WarrantyModel
@@ -122,7 +133,22 @@ async def get_early_warning():
         except Exception as exc:  # noqa: BLE001
             logger.debug(f"early-warning: warranty signal skipped ({exc})")
 
-        return ews.compute_risk_score(warranty_risk_score=warranty_risk)
+        # Use real commodity volatility from pipeline cache when available.
+        commodity_vol = snap.get("commodity_volatility_pct")
+
+        # Derive commodity MAPE proxy from bias metrics (mean of all mape values).
+        commodity_mape = None
+        bias_metrics = snap.get("bias_metrics") or []
+        if bias_metrics:
+            commodity_mape = round(
+                sum(b["mape"] for b in bias_metrics) / len(bias_metrics), 1
+            )
+
+        return ews.compute_risk_score(
+            commodity_volatility_pct=commodity_vol,
+            commodity_mape_pct=commodity_mape,
+            warranty_risk_score=warranty_risk,
+        )
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"/insights/early-warning error ({exc})")
         from src.insights.early_warning import EarlyWarningSystem

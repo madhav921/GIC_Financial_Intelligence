@@ -10,10 +10,10 @@ const ROUTE_TITLES = {
   '/app/pnl': 'Financial P&L',
   '/app/simulation': 'Scenario Simulation',
   '/app/market': 'Market Monitor',
-  '/app/insights': 'Insights Center',
-  '/app/variance': 'Plan-to-Perform Variance Bridge',
+  '/app/insights': 'Insights Centre',
+  '/app/variance': 'Variance Bridge',
   '/app/warranty': 'Warranty Analytics',
-  '/app/governance': 'Governance & LLM',
+  '/app/governance': 'Governance & Audit',
   '/app/data': 'Data Explorer',
 };
 
@@ -36,7 +36,7 @@ export default function Header() {
     return () => clearInterval(timer);
   }, []);
 
-  const pageTitle = ROUTE_TITLES[location.pathname] || 'GIC Intelligence';
+  const pageTitle = ROUTE_TITLES[location.pathname] || 'GIC Plan-to-Perform';
   const admin = isAdmin(user);
 
   const handleLogout = () => {

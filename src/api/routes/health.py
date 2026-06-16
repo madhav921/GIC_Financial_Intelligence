@@ -20,10 +20,18 @@ async def health_check():
     except Exception:
         n_models = 0
 
+    llm_status = None
+    try:
+        from layers.layer5_governance.controller import GovernanceLayerController
+        llm_status = GovernanceLayerController().llm_health_check()
+    except Exception:
+        pass
+
     return HealthResponse(
         status="ok",
         version=settings["project"]["version"],
         models_loaded=n_models,
+        llm_status=llm_status,
     )
 
 

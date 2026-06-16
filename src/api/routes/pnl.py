@@ -58,15 +58,33 @@ def get_annual_pnl():
             gross_margin = float(yr_df["gross_margin"].sum())
             ebit = float(yr_df["operating_income"].sum())
 
-        # Segment breakdown from sales data
+        # Segment breakdown — most-recent calendar year only, consistent with KPI strip
         segments = []
         if "segment" in sales_df.columns:
-            seg_rev = (
-                sales_df.groupby("segment")
-                .apply(lambda g: float((g["volume"] * g["avg_price_usd"]).sum()))
-                .reset_index(name="revenue")
+            sf = sales_df.copy()
+            if "date" in sf.columns:
+                sf["_year"] = pd.to_datetime(sf["date"]).dt.year
+                sf = sf[sf["_year"] == int(sf["_year"].max())]
+            price_col = next(
+                (c for c in ("avg_price_usd", "price", "unit_price") if c in sf.columns),
+                None,
             )
-            segments = seg_rev.rename(columns={"segment": "name"}).to_dict("records")
+            if price_col:
+                sf = sf.copy()
+                sf["_rev"] = sf["volume"] * sf[price_col]
+                seg_agg = sf.groupby("segment")[["_rev", "volume"]].sum().reset_index()
+                seg_agg = seg_agg.rename(columns={"_rev": "revenue"})
+            else:
+                seg_agg = sf.groupby("segment")[["volume"]].sum().reset_index()
+                seg_agg["revenue"] = 0.0
+            segments = [
+                {
+                    "segment": str(row["segment"]),
+                    "revenue": float(row["revenue"]),
+                    "volume": int(row["volume"]),
+                }
+                for _, row in seg_agg.iterrows()
+            ]
 
         return {
             "total_revenue": round(total_rev, 0),

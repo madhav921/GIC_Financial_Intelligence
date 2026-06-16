@@ -81,17 +81,27 @@ export default function Sidebar() {
       }}
     >
       {/* Logo / Branding */}
-      <div className="flex items-center justify-between px-4 py-5 border-b border-slate-700">
+      <div className="flex items-center justify-between px-4 py-4 border-b border-slate-700">
         {!collapsed ? (
           <div>
-            <div className="text-lg font-bold text-white tracking-tight">GIC Intelligence</div>
-            <div className="mt-1">
+            {/* Typographic title: GIC (heavy) · Plan-to-Perform (accent) · subtitle */}
+            <div className="flex items-baseline gap-1.5 leading-none">
+              <span className="text-xl font-black text-white tracking-tighter">GIC</span>
+              <span className="text-[10px] font-bold text-blue-400 tracking-wider uppercase leading-none">
+                Plan-to-Perform
+              </span>
+            </div>
+            <div className="text-[9px] font-medium text-slate-500 tracking-widest uppercase mt-1 leading-none">
+              Financial Intelligence
+            </div>
+            <div className="mt-2">
               <RoleBadge user={user} collapsed={false} />
             </div>
           </div>
         ) : (
           <div className="w-full flex flex-col items-center gap-1">
-            <span className="text-2xl">📡</span>
+            <span className="text-lg font-black text-white leading-none">G</span>
+            <span className="text-[8px] font-bold text-blue-400 uppercase tracking-wider">P2P</span>
             <RoleBadge user={user} collapsed />
           </div>
         )}

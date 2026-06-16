@@ -136,8 +136,25 @@ export const gicApi = {
   monthlyFan: () => api.get('/simulation/monthly-fan'),
 
   // P&L
-  buildPnL: (params = {}) => api.post('/pnl/build', params),
   getAnnualPnL: () => api.get('/pnl/annual'),
+
+  // Market data (live indices + FX from Yahoo Finance)
+  getMarketIndices: () => api.get('/realtime/market-indices'),
+  getFxHistory: () => api.get('/realtime/fx-history'),
+  refreshMarketData: () => api.post('/realtime/refresh'),
+
+  // Governance — live audit trail, bias metrics and LLM narratives
+  getAuditTrail: (limit = 50, eventType = null) => {
+    const params = new URLSearchParams({ limit });
+    if (eventType) params.append('event_type', eventType);
+    return api.get(`/intelligence/audit?${params}`);
+  },
+  getBiasMetrics: () => api.get('/intelligence/bias'),
+  getNarrative: (commodity) =>
+    api.get(`/intelligence/narrative/${encodeURIComponent(commodity)}`),
+  triggerPipelineRefresh: () => {
+    api.post('/realtime/refresh').catch(() => {});
+  },
 };
 
 export default api;

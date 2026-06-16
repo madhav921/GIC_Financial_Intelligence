@@ -9,6 +9,7 @@ class HealthResponse(BaseModel):
     status: str = "ok"
     version: str
     models_loaded: int
+    llm_status: dict | None = None
 
 
 class CommodityForecastRequest(BaseModel):
@@ -26,6 +27,7 @@ class CommodityForecastResponse(BaseModel):
     lower_95: list[float]
     upper_95: list[float]
     metrics: dict[str, float]
+    narrative: str | None = None
 
 
 class ScenarioRequest(BaseModel):

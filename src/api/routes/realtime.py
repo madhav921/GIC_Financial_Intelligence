@@ -1,17 +1,21 @@
 """Real-time market data-capture routes (REST snapshot + WebSocket live tape).
 
 Prices are seeded from the same data source as the forecast models:
-  data/raw/commodity_prices.csv  (Yahoo Finance, via scripts/fetch_data.py)  → primary
-  data/synthetic/commodity_prices.csv                                         → fallback
+  yfinance live pull  (market_data_source=live, always tried first)
+  data/raw/commodity_prices.csv  (Yahoo Finance, cached from previous pull)
+  data/synthetic/commodity_prices.csv                                         → last resort
 
-The random walk mean-reverts to the real latest prices, so the live ticker
-stays anchored to real market levels rather than drifting to fictional defaults.
+FX rates are seeded from Yahoo Finance at startup (GBPUSD=X, EURUSD=X, USDCNY=X).
+The random walk uses very small per-tick volatility:
+  FX:         vol=0.00008  (~0.008% per 2s tick — realistic micro-movement)
+  Commodities: vol=0.0008  (~0.08% per 2s tick — subtle intraday drift)
 """
 
 from __future__ import annotations
 
 import asyncio
 import random
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -25,48 +29,58 @@ realtime_router = APIRouter(tags=["realtime"])
 
 # ── Commodity metadata ─────────────────────────────────────────────────────────
 
-# The 6 commodities surfaced on the live dashboard ticker.
-# Names must match column headers in commodity_prices.csv exactly.
 _TOP_COMMODITY_NAMES: list[str] = [
     "Steel", "Lithium", "Aluminum", "Copper", "Cobalt", "Nickel",
 ]
 
 _COMMODITY_UNITS: dict[str, str] = {
-    "Steel":       "USD/t",
-    "Lithium":     "USD/kg",
-    "Aluminum":    "USD/t",
-    "Copper":      "USD/t",
-    "Cobalt":      "USD/t",
-    "Nickel":      "USD/t",
-    "Platinum":    "USD/oz",
-    "Palladium":   "USD/oz",
-    "Natural_Gas": "USD/MMBtu",
+    "Steel":         "USD/t",
+    "Lithium":       "USD/kg",
+    "Aluminum":      "USD/t",
+    "Copper":        "USD/t",
+    "Cobalt":        "USD/t",
+    "Nickel":        "USD/t",
+    "Platinum":      "USD/oz",
+    "Palladium":     "USD/oz",
+    "Natural_Gas":   "USD/MMBtu",
     "Polypropylene": "USD/t",
-    "ABS_Resin":   "USD/t",
+    "ABS_Resin":     "USD/t",
 }
 
-# Realistic fallback prices aligned with Yahoo Finance proxy values.
-# These are used ONLY when both data/raw/ and yfinance calls fail.
-# Units match COMMODITY_UNITS above (data from last known good fetch).
+# Used ONLY when both yfinance and data/raw/ fail.
 _FALLBACK_PRICES: dict[str, float] = {
-    "Steel":         790.0,    # USD/t  (SLX ETF ×7.5 proxy)
-    "Lithium":        21.0,    # USD/kg (LIT ETF ×0.25 proxy)
-    "Aluminum":     3735.0,    # USD/t  (AA stock ×60 proxy)
-    "Copper":      13900.0,    # USD/t  (HG=F futures ×2204.62)
-    "Cobalt":      24700.0,    # USD/t  (GLNCY stock ×1600 proxy)
-    "Nickel":      12250.0,    # USD/t  (VALE stock ×750 proxy)
-    "Platinum":     1970.0,    # USD/oz (PL=F futures)
-    "Palladium":    1420.0,    # USD/oz (PA=F futures)
-    "Natural_Gas":    30.0,    # USD/MMBtu
-    "Polypropylene": 940.0,    # USD/t  (synthetic)
-    "ABS_Resin":    1440.0,    # USD/t  (synthetic)
+    "Steel":         790.0,
+    "Lithium":        21.0,
+    "Aluminum":     3735.0,
+    "Copper":      13900.0,
+    "Cobalt":      24700.0,
+    "Nickel":      12250.0,
+    "Platinum":     1970.0,
+    "Palladium":    1420.0,
+    "Natural_Gas":    30.0,
+    "Polypropylene": 940.0,
+    "ABS_Resin":    1440.0,
 }
 
 _DEFAULT_FX: dict[str, float] = {
-    "GBP/USD": 1.27,
-    "EUR/USD": 1.08,
-    "USD/CNY": 7.15,
+    "GBP/USD": 1.2750,
+    "EUR/USD": 1.1050,
+    "USD/CNY": 7.1500,
 }
+
+# ── Module-level caches ────────────────────────────────────────────────────────
+
+_fx_cache: dict[str, float] | None = None
+_fx_cache_ts: float = 0.0
+_FX_CACHE_TTL: float = 3600.0  # 1 hour
+
+_market_indices_cache: dict | None = None
+_market_indices_ts: float = 0.0
+_MARKET_INDICES_TTL: float = 14400.0  # 4 hours
+
+_fx_history_cache: dict | None = None
+_fx_history_ts: float = 0.0
+_FX_HISTORY_TTL: float = 3600.0  # 1 hour
 
 _HEADLINES: list[str] = [
     "Lithium softening — window to extend battery-material hedge at favourable rates.",
@@ -100,20 +114,18 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _seed_prices_from_real_data() -> dict[str, float]:
-    """Load the latest commodity prices from the same source as the forecast models.
+# ── Data seeding ───────────────────────────────────────────────────────────────
 
-    Priority: data/raw/commodity_prices.csv → yfinance live → _FALLBACK_PRICES.
-    Returns a dict keyed by commodity name with the most recent price value.
-    """
+
+def _seed_prices_from_real_data() -> dict[str, float]:
+    """Load latest commodity prices (MarketDataProvider → _FALLBACK_PRICES)."""
     try:
         from src.data.market_data_provider import get_latest_prices
         latest = get_latest_prices()
         if latest:
             prices = {name: latest[name] for name in _FALLBACK_PRICES if name in latest}
-            missing = [n for n in _FALLBACK_PRICES if n not in prices]
-            if missing:
-                for m in missing:
+            for m in _FALLBACK_PRICES:
+                if m not in prices:
                     prices[m] = _FALLBACK_PRICES[m]
             logger.info(
                 "realtime: seeded from MarketDataProvider — "
@@ -122,15 +134,53 @@ def _seed_prices_from_real_data() -> dict[str, float]:
             )
             return prices
     except Exception as exc:
-        logger.warning(f"realtime: MarketDataProvider seed failed ({exc}); using fallback prices")
+        logger.warning(f"realtime: MarketDataProvider seed failed ({exc}); using fallback")
     return dict(_FALLBACK_PRICES)
 
 
-class MarketFeed:
-    """Stateful market feed producing believable mean-reverting ticks.
+def _seed_fx_from_real_data() -> dict[str, float]:
+    """Fetch current FX rates from Yahoo Finance (1-hour cache).
 
-    Prices are seeded from real market data and the random walk stays anchored
-    to those real levels, so the live tape is consistent with forecast model inputs.
+    Returns dict of {"GBP/USD": 1.27, "EUR/USD": 1.10, "USD/CNY": 7.15}.
+    Falls back to _DEFAULT_FX if yfinance is unavailable.
+    """
+    global _fx_cache, _fx_cache_ts
+
+    if _fx_cache and (time.time() - _fx_cache_ts) < _FX_CACHE_TTL:
+        return dict(_fx_cache)
+
+    try:
+        import yfinance as yf
+        tickers = {"GBP/USD": "GBPUSD=X", "EUR/USD": "EURUSD=X", "USD/CNY": "USDCNY=X"}
+        fx: dict[str, float] = {}
+        for pair, ticker in tickers.items():
+            t = yf.Ticker(ticker)
+            hist = t.history(period="5d")
+            if not hist.empty:
+                fx[pair] = round(float(hist["Close"].iloc[-1]), 4)
+        if len(fx) == len(tickers):
+            _fx_cache = dict(fx)
+            _fx_cache_ts = time.time()
+            logger.info(
+                f"realtime: FX from Yahoo Finance — "
+                f"GBP/USD={fx['GBP/USD']}, EUR/USD={fx['EUR/USD']}, USD/CNY={fx['USD/CNY']}"
+            )
+            return fx
+    except Exception as exc:
+        logger.warning(f"realtime: FX seed from Yahoo Finance failed ({exc}); using defaults")
+
+    return dict(_DEFAULT_FX)
+
+
+# ── Market feed ────────────────────────────────────────────────────────────────
+
+
+class MarketFeed:
+    """Stateful market feed with realistic mean-reverting micro-movements.
+
+    Commodity vol=0.0008 per 2s tick (~0.08%/tick, ~3%/day annualised),
+    FX vol=0.00008 per 2s tick (~0.008%/tick — 4th decimal fluctuates subtly).
+    Both mean-revert to real Yahoo Finance anchor prices.
     """
 
     def __init__(self, *, seed: int | None = None) -> None:
@@ -142,27 +192,23 @@ class MarketFeed:
         except Exception:
             self._settings = {}
 
-        # Seed from real data (same source as forecast models).
+        # Commodity prices seeded from real data.
         self._anchor: dict[str, float] = _seed_prices_from_real_data()
-
-        # Current prices start at the real anchors.
         self._prices: dict[str, float] = dict(self._anchor)
         self._prev_prices: dict[str, float] = dict(self._prices)
 
-        self._fx: dict[str, float] = dict(_DEFAULT_FX)
+        # FX rates seeded from Yahoo Finance.
+        self._anchor_fx: dict[str, float] = _seed_fx_from_real_data()
+        self._fx: dict[str, float] = dict(self._anchor_fx)
         self._prev_fx: dict[str, float] = dict(self._fx)
 
-        # Commodity index starts at 100 (relative to our seeded baseline).
         self._index: float = 100.0
         self._prev_index: float = 100.0
-
         self._risk: float = 42.0
         self._headline_idx: int = 0
 
-    # ── random-walk helpers ────────────────────────────────────────────────────
-
     def _walk(self, value: float, anchor: float, *, vol: float, reversion: float) -> float:
-        """One mean-reverting step toward anchor. Returns strictly positive value."""
+        """One mean-reverting Ornstein-Uhlenbeck step. Returns strictly positive value."""
         shock = self._rng.gauss(0.0, vol)
         pull = reversion * (anchor - value) / (anchor or 1.0)
         new_value = value * (1.0 + shock) + pull * value
@@ -175,44 +221,33 @@ class MarketFeed:
         return round((curr - prev) / prev * 100.0, 3)
 
     def _ebit_nowcast(self) -> float:
-        """Live EBIT estimate in the £3.5–4.0bn annual range (£290-330M/month).
-
-        Anti-correlated with commodity index: higher input costs → lower EBIT.
-        """
-        base = 3.75e9          # £3.75bn annual (consistent with /pnl/annual)
-        # ±£150m swing across the plausible index range (95..115 → ~100 mid).
+        base = 3.75e9
         adjustment = (100.0 - self._index) / 20.0 * 0.15e9
         jitter = self._rng.gauss(0.0, 0.02e9)
         return round(_clamp(base + adjustment + jitter, 3.3e9, 4.2e9), 0)
 
-    # ── public API ─────────────────────────────────────────────────────────────
-
     def next_tick(self) -> dict[str, Any]:
-        """Advance state by one tick and return a snapshot dict."""
         self._tick_count += 1
-
         self._prev_prices = dict(self._prices)
         self._prev_fx = dict(self._fx)
         self._prev_index = self._index
 
-        # Walk commodity prices: mean-revert toward the real seeded anchor.
+        # Commodity walk — ~0.08% per tick, subtle intraday drift.
         for name in self._prices:
             anchor = self._anchor.get(name, self._prices[name])
             self._prices[name] = self._walk(
-                self._prices[name], anchor, vol=0.004, reversion=0.015
+                self._prices[name], anchor, vol=0.0008, reversion=0.008
             )
 
-        # Walk FX (tight band around real rates).
+        # FX walk — ~0.008% per tick, 4th decimal changes slowly.
         for pair in self._fx:
-            anchor = _DEFAULT_FX[pair]
-            self._fx[pair] = self._walk(self._fx[pair], anchor, vol=0.0010, reversion=0.03)
+            anchor = self._anchor_fx.get(pair, _DEFAULT_FX.get(pair, self._fx[pair]))
+            self._fx[pair] = self._walk(self._fx[pair], anchor, vol=0.00008, reversion=0.01)
 
-        # Walk commodity index, mean-reverting to 100.
         self._index = _clamp(
             self._walk(self._index, 100.0, vol=0.003, reversion=0.04), 92.0, 118.0
         )
 
-        # Drift risk score, nudged by index.
         index_pressure = (self._index - 100.0) * 0.3
         self._risk = _clamp(
             self._risk + self._rng.gauss(index_pressure * 0.04, 0.6), 0.0, 100.0
@@ -224,7 +259,6 @@ class MarketFeed:
         return self._build_snapshot()
 
     def snapshot(self) -> dict[str, Any]:
-        """Return the current snapshot without advancing state."""
         return self._build_snapshot()
 
     def _build_snapshot(self) -> dict[str, Any]:
@@ -248,7 +282,7 @@ class MarketFeed:
                 "rate": round(self._fx[pair], 4),
                 "change_pct": self._pct(self._fx[pair], self._prev_fx.get(pair, self._fx[pair])),
             }
-            for pair in _DEFAULT_FX
+            for pair in self._anchor_fx
         ]
 
         risk_score = round(self._risk, 1)
@@ -270,12 +304,20 @@ class MarketFeed:
 
 
 def _is_real_data() -> bool:
-    """True when data/raw/commodity_prices.csv is present (real yfinance data)."""
+    """True when real Yahoo Finance data is active (live pull or cached CSV)."""
     try:
-        from src.config import get_project_root
-        return (get_project_root() / "data" / "raw" / "commodity_prices.csv").exists()
+        from src.data.market_data_provider import get_data_source_label
+        label = get_data_source_label()
+        return "Yahoo Finance" in label or "Live" in label
     except Exception:
-        return False
+        try:
+            from src.config import get_project_root
+            return (get_project_root() / "data" / "raw" / "commodity_prices.csv").exists()
+        except Exception:
+            return False
+
+
+# ── REST endpoints ─────────────────────────────────────────────────────────────
 
 
 @realtime_router.get("/realtime/snapshot")
@@ -287,18 +329,20 @@ async def get_snapshot() -> dict[str, Any]:
 
 @realtime_router.post("/realtime/refresh")
 async def refresh_market_data() -> dict[str, Any]:
-    """Force-refresh the commodity price cache (call after running fetch_data.py).
-
-    Re-seeds from the newest data/raw/commodity_prices.csv and clears the
-    MarketDataProvider in-memory cache so the next request pulls fresh data.
-    """
+    """Force-refresh the commodity price cache."""
+    global _fx_cache, _fx_cache_ts, _market_indices_cache, _market_indices_ts
     try:
-        from src.data.market_data_provider import get_latest_prices, invalidate_cache
+        from src.data.market_data_provider import invalidate_cache, get_latest_prices
         invalidate_cache()
+        # Also bust FX and market-indices caches
+        _fx_cache = None
+        _fx_cache_ts = 0.0
+        _market_indices_cache = None
+        _market_indices_ts = 0.0
         latest = get_latest_prices()
         return {
             "status": "refreshed",
-            "source": get_data_source_label(),
+            "source": _get_data_source_label(),
             "latest_prices": latest,
             "commodities": len(latest),
         }
@@ -306,8 +350,7 @@ async def refresh_market_data() -> dict[str, Any]:
         return {"status": "error", "detail": str(exc)}
 
 
-def get_data_source_label() -> str:
-    """Return human-readable label for the active market data source."""
+def _get_data_source_label() -> str:
     try:
         from src.data.market_data_provider import get_data_source_label as _label
         return _label()
@@ -315,13 +358,162 @@ def get_data_source_label() -> str:
         return "Unknown"
 
 
+@realtime_router.get("/realtime/market-indices")
+async def get_market_indices() -> dict[str, Any]:
+    """Fetch current market indices from Yahoo Finance (Gold, S&P 500, VIX, Oil, 10Y Yield).
+
+    Cached 4 hours. Returns previous-close prices.
+    Falls back to approximate 2026 reference values if Yahoo Finance is unavailable.
+    """
+    global _market_indices_cache, _market_indices_ts
+
+    now = time.time()
+    if _market_indices_cache and (now - _market_indices_ts) < _MARKET_INDICES_TTL:
+        return _market_indices_cache
+
+    import pandas as _pd
+
+    _INDICES_META: dict[str, dict] = {
+        "GC=F":  {"name": "Gold",      "currency": "$", "decimals": 0},
+        "^GSPC": {"name": "S&P 500",   "currency": "",  "decimals": 2},
+        "^VIX":  {"name": "VIX",       "currency": "",  "decimals": 2},
+        "CL=F":  {"name": "Oil (WTI)", "currency": "$", "decimals": 2},
+        "^TNX":  {"name": "10Y Yield", "currency": "%", "decimals": 2},
+    }
+
+    try:
+        import yfinance as yf
+        ticker_list = list(_INDICES_META.keys())
+        raw = yf.download(ticker_list, period="5d", interval="1d", progress=False)
+
+        if not raw.empty:
+            close = raw["Close"] if isinstance(raw.columns, _pd.MultiIndex) else raw
+            indices = []
+            for ticker, meta in _INDICES_META.items():
+                if ticker in close.columns:
+                    series = close[ticker].dropna()
+                    if len(series) >= 1:
+                        latest = float(series.iloc[-1])
+                        prev = float(series.iloc[-2]) if len(series) >= 2 else latest
+                        change = (latest - prev) / prev * 100.0 if prev else 0.0
+                        indices.append({
+                            "name": meta["name"],
+                            "ticker": ticker,
+                            "value": round(latest, meta["decimals"]),
+                            "change_pct": round(change, 2),
+                            "currency": meta["currency"],
+                            "as_of": str(series.index[-1])[:10],
+                        })
+
+            if indices:
+                result: dict[str, Any] = {
+                    "indices": indices,
+                    "data_source": "Yahoo Finance",
+                    "note": "Previous close · Gold=GC=F futures · Oil=CL=F WTI futures",
+                    "as_of": _now_iso(),
+                }
+                _market_indices_cache = result
+                _market_indices_ts = now
+                logger.info(f"market-indices: fetched {len(indices)} from Yahoo Finance")
+                return result
+    except Exception as exc:
+        logger.warning(f"market-indices: Yahoo Finance fetch failed ({exc}); returning fallback")
+
+    fallback: dict[str, Any] = {
+        "indices": [
+            {"name": "Gold",      "ticker": "GC=F",  "value": 3250.0, "change_pct": 0.0, "currency": "$", "as_of": "reference"},
+            {"name": "S&P 500",   "ticker": "^GSPC", "value": 5800.0, "change_pct": 0.0, "currency": "",  "as_of": "reference"},
+            {"name": "VIX",       "ticker": "^VIX",  "value": 16.5,   "change_pct": 0.0, "currency": "",  "as_of": "reference"},
+            {"name": "Oil (WTI)", "ticker": "CL=F",  "value": 72.0,   "change_pct": 0.0, "currency": "$", "as_of": "reference"},
+            {"name": "10Y Yield", "ticker": "^TNX",  "value": 4.35,   "change_pct": 0.0, "currency": "%", "as_of": "reference"},
+        ],
+        "data_source": "Reference (Yahoo Finance unavailable)",
+        "note": "Approximate values — start backend for live data",
+        "as_of": _now_iso(),
+    }
+    return fallback
+
+
+@realtime_router.get("/realtime/fx-history")
+async def get_fx_history() -> dict[str, Any]:
+    """Fetch 30-day daily FX rate history from Yahoo Finance.
+
+    Returns GBP/USD, EUR/USD, USD/CNY with:
+      history:        list of {date, rate} — last 30 daily closes
+      change_1d_pct:  today vs yesterday (real day-over-day change)
+      change_label:   "1d" — interval for the displayed change %
+
+    Cached 1 hour. Used by Market Monitor FX sparklines and change-% labels.
+    """
+    global _fx_history_cache, _fx_history_ts
+
+    now = time.time()
+    if _fx_history_cache and (now - _fx_history_ts) < _FX_HISTORY_TTL:
+        return _fx_history_cache
+
+    import pandas as _pd
+
+    _FX_TICKERS = {
+        "GBP/USD": "GBPUSD=X",
+        "EUR/USD": "EURUSD=X",
+        "USD/CNY": "USDCNY=X",
+    }
+
+    try:
+        import yfinance as yf
+        ticker_list = list(_FX_TICKERS.values())
+        raw = yf.download(ticker_list, period="35d", interval="1d", progress=False)
+
+        if not raw.empty:
+            close = raw["Close"] if isinstance(raw.columns, _pd.MultiIndex) else raw
+            ticker_to_pair = {v: k for k, v in _FX_TICKERS.items()}
+            pairs: dict[str, Any] = {}
+
+            for ticker, pair in ticker_to_pair.items():
+                if ticker in close.columns:
+                    series = close[ticker].dropna()
+                    if len(series) >= 2:
+                        history = [
+                            {"date": str(idx)[:10], "rate": round(float(val), 4)}
+                            for idx, val in zip(series.index[-30:], series.values[-30:])
+                        ]
+                        latest = float(series.iloc[-1])
+                        prev = float(series.iloc[-2])
+                        change_1d = (latest - prev) / prev * 100.0 if prev else 0.0
+                        pairs[pair] = {
+                            "history": history,
+                            "change_1d_pct": round(change_1d, 3),
+                            "change_label": "1d",
+                        }
+
+            if pairs:
+                result: dict[str, Any] = {
+                    "pairs": pairs,
+                    "data_source": "Yahoo Finance",
+                    "note": "Daily closes · change = today vs yesterday",
+                    "as_of": _now_iso(),
+                }
+                _fx_history_cache = result
+                _fx_history_ts = now
+                logger.info(f"fx-history: fetched {len(pairs)} pairs from Yahoo Finance")
+                return result
+    except Exception as exc:
+        logger.warning(f"fx-history: Yahoo Finance fetch failed ({exc})")
+
+    return {
+        "pairs": {},
+        "data_source": "Unavailable",
+        "note": "Yahoo Finance unavailable",
+        "as_of": _now_iso(),
+    }
+
+
+# ── WebSocket ──────────────────────────────────────────────────────────────────
+
+
 @realtime_router.websocket("/ws/market")
 async def ws_market(websocket: WebSocket) -> None:
-    """Live market tape over WebSocket.
-
-    Sends an initial snapshot immediately on connect, then pushes a new tick
-    every ``interval`` seconds (query param, default 2.0, clamped 0.5–10).
-    """
+    """Live market tape — initial snapshot then one tick every `interval` seconds."""
     await websocket.accept()
 
     interval = 2.0
