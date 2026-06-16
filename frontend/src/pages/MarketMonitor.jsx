@@ -111,6 +111,48 @@ function useLiveSparkline(anchorValue, {
   return buffer;
 }
 
+// CommodityTile — live price from WebSocket, animated sparkline, real MoM % when history loaded.
+// Falls back to per-tick change_pct from the WebSocket when history hasn't arrived yet.
+function CommodityTile({ c, tileIndex }) {
+  const seed = c.name.split('').reduce((acc, ch, i) => acc * 31 + ch.charCodeAt(0) + i, tileIndex + 200);
+  const liveBuffer = useLiveSparkline(c.price, {
+    vol: 0.0012,
+    reversion: 0.015,
+    intervalMs: 2000,
+    points: 28,
+    seed,
+  });
+
+  const sparkData = c.sparkData.length >= 2 ? c.sparkData : liveBuffer;
+  const last2 = sparkData.slice(-2);
+  const isUp = last2.length < 2 ? true : last2[1] >= last2[0];
+
+  return (
+    <div className="rounded-lg p-3 border border-slate-700 transition-colors hover:border-slate-500" style={{ backgroundColor: '#0f172a' }}>
+      <div className="flex justify-between items-start">
+        <div>
+          <p className="text-xs text-slate-400 font-mono">
+            {c.symbol} · {c.source}
+            {c.isLive && <span className="ml-1 text-green-500 font-bold">●</span>}
+          </p>
+          <p className="text-sm font-medium text-slate-200">{c.name}</p>
+        </div>
+        <ChangeCell change={c.change} label={c.changeLabel} />
+      </div>
+      <div className="flex items-end justify-between mt-1">
+        <p className="text-xl font-bold text-white">
+          {c.unit?.startsWith('$') ? '$' : c.unit?.startsWith('£') ? '£' : c.unit?.startsWith('€') ? '€' : ''}
+          {c.price.toLocaleString('en-GB', { minimumFractionDigits: c.price < 100 ? 2 : 0 })}
+          <span className="text-xs text-slate-500 ml-1 font-normal">
+            {c.unit?.replace(/^[$£€]/, '')}
+          </span>
+        </p>
+        <Sparkline data={sparkData} color={isUp ? '#22c55e' : '#ef4444'} width={88} height={26} />
+      </div>
+    </div>
+  );
+}
+
 // ChangeCell — shows arrow + % + small interval label for commodity tiles.
 function ChangeCell({ change, label }) {
   const color = change > 0 ? 'text-green-400' : change < 0 ? 'text-red-400' : 'text-slate-400';
@@ -306,17 +348,19 @@ export default function MarketMonitor() {
 
   const backendDataSource = snapshot?.data_source || (source === 'live' ? 'Yahoo Finance' : 'Simulated');
 
-  // Commodity tiles: live price (ticks every 2s) + real MoM change from historical data.
+  // Commodity tiles: live price (ticks every 2s) + real MoM change when history loaded,
+  // otherwise falls back to per-tick change_pct from the WebSocket snapshot.
   const commodityTiles = useMemo(() => {
     if (snapshot?.top_commodities?.length) {
       return snapshot.top_commodities.map(c => {
         const hist = commodityHistories[c.name] || [];
-        let momChange = 0;
-        const changeLabel = hist.length >= 2 ? 'MoM' : 'ref';
+        let momChange = parseFloat((c.change_pct || 0).toFixed(2));
+        let changeLabel = '2s';
         if (hist.length >= 2) {
           const last = hist[hist.length - 1];
           const prev = hist[hist.length - 2];
-          momChange = prev > 0 ? parseFloat(((last - prev) / prev * 100).toFixed(2)) : 0;
+          momChange = prev > 0 ? parseFloat(((last - prev) / prev * 100).toFixed(2)) : momChange;
+          changeLabel = 'MoM';
         }
         return {
           name: c.name,
@@ -518,32 +562,7 @@ export default function MarketMonitor() {
         </p>
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
           {commodityTiles.map((c, i) => (
-            <div key={i} className="rounded-lg p-3 border border-slate-700 transition-colors hover:border-slate-500" style={{ backgroundColor: '#0f172a' }}>
-              <div className="flex justify-between items-start">
-                <div>
-                  <p className="text-xs text-slate-400 font-mono">
-                    {c.symbol} · {c.source}
-                    {c.isLive && <span className="ml-1 text-green-500 font-bold">●</span>}
-                  </p>
-                  <p className="text-sm font-medium text-slate-200">{c.name}</p>
-                </div>
-                <ChangeCell change={c.change} label={c.changeLabel} />
-              </div>
-              <div className="flex items-end justify-between mt-1">
-                <p className="text-xl font-bold text-white">
-                  {c.unit?.startsWith('$') ? '$' : c.unit?.startsWith('£') ? '£' : c.unit?.startsWith('€') ? '€' : ''}
-                  {c.price.toLocaleString('en-GB', { minimumFractionDigits: c.price < 100 ? 2 : 0 })}
-                  <span className="text-xs text-slate-500 ml-1 font-normal">
-                    {c.unit?.replace(/^[$£€]/, '')}
-                  </span>
-                </p>
-                <Sparkline
-                  data={c.sparkData.length >= 2 ? c.sparkData : [c.price, c.price]}
-                  color={c.change >= 0 ? '#22c55e' : '#ef4444'}
-                  width={88} height={26}
-                />
-              </div>
-            </div>
+            <CommodityTile key={i} c={c} tileIndex={i} />
           ))}
         </div>
       </SectionCard>

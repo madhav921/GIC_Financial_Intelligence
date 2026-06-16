@@ -8,6 +8,7 @@ GET  /pnl/regime  — return current Hurst-based regime for all tracked commodit
 from __future__ import annotations
 
 import logging
+import math
 
 import pandas as pd
 from fastapi import APIRouter, HTTPException
@@ -57,6 +58,12 @@ def get_annual_pnl():
             total_rev = float(yr_df["net_revenue"].sum())
             gross_margin = float(yr_df["gross_margin"].sum())
             ebit = float(yr_df["operating_income"].sum())
+
+        # Raise if any core metric is NaN/inf/zero — triggers config-based fallback below.
+        if not all(math.isfinite(v) for v in [total_rev, gross_margin, ebit]):
+            raise ValueError(f"NaN/inf in P&L: rev={total_rev} gm={gross_margin} ebit={ebit}")
+        if total_rev <= 0:
+            raise ValueError(f"Non-positive revenue ({total_rev}); cannot compute P&L ratios")
 
         # Segment breakdown — most-recent calendar year only, consistent with KPI strip
         segments = []

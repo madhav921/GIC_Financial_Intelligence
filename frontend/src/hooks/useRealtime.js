@@ -15,6 +15,8 @@ function clamp(v, lo, hi) {
 }
 
 // Build a plausible initial snapshot for the simulator.
+// Commodity names and seed prices match backend _TOP_COMMODITY_NAMES / _FALLBACK_PRICES
+// so simulated mode looks the same as live mode.
 function seedSnapshot() {
   return {
     timestamp: new Date().toISOString(),
@@ -23,19 +25,20 @@ function seedSnapshot() {
     risk_score: 42,
     risk_band: 'Moderate',
     top_commodities: [
-      { name: 'Aluminium', price: 2350, change_pct: 0, unit: 'USD/t' },
-      { name: 'Copper', price: 9650, change_pct: 0, unit: 'USD/t' },
-      { name: 'Steel', price: 720, change_pct: 0, unit: 'USD/t' },
-      { name: 'Nickel', price: 17800, change_pct: 0, unit: 'USD/t' },
-      { name: 'Zinc', price: 2680, change_pct: 0, unit: 'USD/t' },
-      { name: 'Crude (Brent)', price: 82.4, change_pct: 0, unit: 'USD/bbl' },
+      { name: 'Steel',    price: 790,   change_pct: 0, unit: 'USD/t'  },
+      { name: 'Lithium',  price: 21,    change_pct: 0, unit: 'USD/kg' },
+      { name: 'Aluminum', price: 3735,  change_pct: 0, unit: 'USD/t'  },
+      { name: 'Copper',   price: 13900, change_pct: 0, unit: 'USD/t'  },
+      { name: 'Cobalt',   price: 24700, change_pct: 0, unit: 'USD/t'  },
+      { name: 'Nickel',   price: 12250, change_pct: 0, unit: 'USD/t'  },
     ],
     fx: [
-      { pair: 'GBP/USD', rate: 1.272, change_pct: 0 },
-      { pair: 'EUR/USD', rate: 1.084, change_pct: 0 },
-      { pair: 'USD/CNY', rate: 7.21, change_pct: 0 },
+      { pair: 'GBP/USD', rate: 1.275, change_pct: 0 },
+      { pair: 'EUR/USD', rate: 1.105, change_pct: 0 },
+      { pair: 'USD/CNY', rate: 7.15,  change_pct: 0 },
     ],
-    ebit_nowcast_gbp: 1.4e9,
+    // Base matches backend MarketFeed._ebit_nowcast() base of £3.75B
+    ebit_nowcast_gbp: 3.75e9,
     headline_insight: HEADLINES[0],
     active_alerts: 2,
   };
@@ -66,10 +69,11 @@ function tick(prev, headlineIdxRef) {
   const risk = clamp(meanRevert(prev.risk_score, 42, 0.06, 4), 8, 92);
   const riskBand = risk < 33 ? 'Low' : risk < 66 ? 'Moderate' : 'Elevated';
 
+  // Matches backend MarketFeed._ebit_nowcast(): base £3.75B, clamp [3.3B, 4.2B]
   const ebit = clamp(
-    meanRevert(prev.ebit_nowcast_gbp, 1.4e9, 0.05, 1.5e7),
-    1.3e9,
-    1.5e9
+    meanRevert(prev.ebit_nowcast_gbp, 3.75e9, 0.05, 2e7),
+    3.3e9,
+    4.2e9
   );
 
   // Occasionally rotate the headline insight.

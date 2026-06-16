@@ -85,13 +85,22 @@ export default function FinancialPnL() {
     gicApi.getAnnualPnL()
       .then((data) => {
         // Backend returns values in USD; convert to GBP £M for display.
-        // total_revenue in USD / 1.27 / 1e6 = £M
-        const revGbpM = Math.round(data.total_revenue * USD_TO_GBP / 1e6);
-        const grossPct = data.gross_margin_pct || 35.9;
+        const rawRev = data?.total_revenue;
+        const rawEbit = data?.ebit;
+        const rawNet = data?.net_income;
+        // Guard against NaN / null / zero from backend when data is incomplete
+        if (!Number.isFinite(rawRev) || rawRev <= 0 || !Number.isFinite(rawEbit)) {
+          setKpiSource('mock');
+          return;
+        }
+        const revGbpM = Math.round(rawRev * USD_TO_GBP / 1e6);
+        const grossPct = Number.isFinite(data.gross_margin_pct) && data.gross_margin_pct > 0
+          ? data.gross_margin_pct
+          : 35.9;
         const grossGbpM = Math.round(revGbpM * grossPct / 100);
-        const ebitGbpM = Math.round(data.ebit * USD_TO_GBP / 1e6);
-        const netGbpM = Math.round(data.net_income * USD_TO_GBP / 1e6);
-        const ebitMarginPct = ((ebitGbpM / revGbpM) * 100).toFixed(1);
+        const ebitGbpM = Math.round(rawEbit * USD_TO_GBP / 1e6);
+        const netGbpM = Number.isFinite(rawNet) ? Math.round(rawNet * USD_TO_GBP / 1e6) : Math.round(ebitGbpM * 0.79);
+        const ebitMarginPct = revGbpM > 0 ? ((ebitGbpM / revGbpM) * 100).toFixed(1) : '0.0';
         setLiveKpis({
           revGbpM,
           grossPct: grossPct.toFixed(1),
