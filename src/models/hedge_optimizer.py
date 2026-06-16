@@ -25,7 +25,6 @@ Result interpretation:
 from __future__ import annotations
 
 import numpy as np
-from scipy.optimize import minimize_scalar
 
 
 class HedgeOptimizer:
@@ -87,8 +86,9 @@ class HedgeOptimizer:
         def objective(h: float) -> float:
             return alpha * expected_cost(h) + (1.0 - alpha) * value_at_risk(h)
 
-        result = minimize_scalar(objective, bounds=(0.0, 1.0), method="bounded")
-        h_star = float(np.clip(result.x, 0.0, 1.0))
+        h_values = np.linspace(0.0, 1.0, 201)
+        obj_values = np.array([objective(h) for h in h_values])
+        h_star = float(h_values[np.argmin(obj_values)])
 
         unhedged_expected = expected_cost(0.0)
         hedged_expected = expected_cost(h_star)

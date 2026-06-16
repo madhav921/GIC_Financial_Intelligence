@@ -1,16 +1,16 @@
 # GIC Financial Intelligence — Vercel deployment dependencies
-# Slim subset: excludes polars, pyarrow, ccxt, yfinance, fredapi, ffn
-# (those are only used by optional routes / inside function bodies)
-# For local dev / Docker use requirements-local.txt instead.
+# Slim subset: ~300 MB installed, fits within Vercel's 500 MB free limit.
+# Excludes: polars, pyarrow, ccxt, yfinance, fredapi, ffn, scipy, statsmodels
+#   - scipy replaced by numpy grid search in hedge_optimizer.py
+#   - statsmodels (SARIMAX) is a lazy import; falls back gracefully to XGBoost
+# For local dev / Docker use requirements-local.txt (full ML stack).
 
 # ── Data Processing ──
 numpy>=1.24.0
 pandas>=2.0.0
 
-# ── ML & Statistics ──
-scipy>=1.11.0
+# ── ML ──
 scikit-learn>=1.3.0
-statsmodels>=0.14.0
 xgboost>=2.0.0
 
 # ── API & Web ──
