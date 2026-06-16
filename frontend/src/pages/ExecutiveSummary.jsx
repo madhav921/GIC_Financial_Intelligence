@@ -3,6 +3,8 @@ import {
   ResponsiveContainer,
   BarChart,
   Bar,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -20,11 +22,15 @@ import { useRealtimeContext } from '../context/RealtimeContext';
 import { gicApi } from '../api/client';
 
 // ── Mock fallback data ────────────────────────────────────────────────────────
+// Ground-truth FY26 financials (single source of truth for all pages):
+// Revenue £19.8B (+3.2% YoY) → Material COGS £12.7B → Gross Margin £7.1B (35.9%, −0.6pp YoY)
+// → EBIT £1,401M (+8.3% YoY) → Net Finance Costs £180M → Pre-tax £1,221M → Tax 21% £256M
+// → Net Income £965M (+9.8% YoY).  All pages must reference these constants.
 const MOCK_KPI = {
   total_revenue: 19800000000,
-  gross_margin_pct: 18.5,
+  gross_margin_pct: 35.9,   // Gross Margin = (Revenue − Material COGS) / Revenue = 7100/19800
   ebit: 1401000000,
-  net_income: 1107000000,
+  net_income: 965000000,    // (EBIT − £180M finance costs) × (1 − 21% tax) = 1221 × 0.79
 };
 
 const MOCK_SEGMENTS = [
@@ -98,12 +104,20 @@ const MOCK_INSIGHTS = {
       supporting_metrics: { forecast_change_pct: -5.0 },
     },
   ],
-  summary: { n_critical: 2, n_warning: 3, total_impact_gbp: -36000000, total_opportunity_gbp: 109000000, weighted_confidence: 0.71 },
+  summary: { n_critical: 2, n_warning: 3, total_impact_gbp: -80000000, total_opportunity_gbp: 59000000, weighted_confidence: 0.74 },
 };
 
+// Components now carry both score (0-100) and weight so the CFO can see
+// WHAT is risky (score) AND how much it drives the composite (weight × score).
+// Verify: 75×0.42 + 42×0.21 + 60×0.24 + 28×0.13 = 31.5+8.82+14.4+3.64 = 58.36 ≈ 58 ✓
 const MOCK_EARLY_WARNING = {
   score: 58, band: 'elevated',
-  components: { commodity: 0.42, margin: 0.21, warranty: 0.24, demand: 0.13 },
+  components: {
+    commodity: { score: 75, weight: 0.42 },
+    warranty:  { score: 60, weight: 0.24 },
+    margin:    { score: 42, weight: 0.21 },
+    demand:    { score: 28, weight: 0.13 },
+  },
   top_drivers: ['Lithium spike', 'EV warranty trend', 'EU demand softening'],
 };
 
@@ -218,25 +232,25 @@ export default function ExecutiveSummary() {
           <KPICard
             title="Gross Margin"
             value={safeKpi.gross_margin_pct}
-            subtitle="vs 17.8% prior year"
-            change={0.7}
-            changeType="up"
+            subtitle="vs 36.5% prior year (Revenue − Material COGS)"
+            change={-0.6}
+            changeType="down"
             format="percent"
           />
           <KPICard
             title="EBIT"
             value={safeKpi.ebit}
             subtitle="7.1% EBIT margin"
-            change={1.4}
+            change={8.3}
             changeType="up"
             format="currency"
           />
           <KPICard
             title="Net Income"
             value={safeKpi.net_income}
-            subtitle="After tax & interest"
-            change={-0.8}
-            changeType="down"
+            subtitle="After £180M finance costs & 21% tax"
+            change={9.8}
+            changeType="up"
             format="currency"
           />
         </div>
@@ -262,12 +276,12 @@ export default function ExecutiveSummary() {
           </ResponsiveContainer>
         </div>
 
-        {/* Commodity Index Trend */}
+        {/* Commodity Index Trend — line chart (time-series, not categorical) */}
         <div className="rounded-xl p-6 border border-slate-700" style={{ backgroundColor: '#1e293b' }}>
           <h3 className="text-lg font-semibold text-slate-100 mb-1">Commodity Cost Index</h3>
-          <p className="text-slate-400 text-xs mb-4">Weighted BOM basket (Base = Jan 100)</p>
+          <p className="text-slate-400 text-xs mb-4">Weighted BOM basket · Base = Jan 100 · +19% YTD</p>
           <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={COMMODITY_TREND} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+            <LineChart data={COMMODITY_TREND} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
               <CartesianGrid stroke="#334155" strokeDasharray="3 3" vertical={false} />
               <XAxis dataKey="month" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={{ stroke: '#475569' }} tickLine={false} />
               <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} domain={[95, 125]} width={40} />
@@ -276,8 +290,8 @@ export default function ExecutiveSummary() {
                 labelStyle={{ color: '#94a3b8' }}
                 formatter={(v) => [`${v.toFixed(1)}`, 'Index']}
               />
-              <Bar dataKey="index" fill="#f59e0b" radius={[3, 3, 0, 0]} />
-            </BarChart>
+              <Line type="monotone" dataKey="index" stroke="#f59e0b" strokeWidth={2.5} dot={{ r: 3, fill: '#f59e0b' }} activeDot={{ r: 5 }} />
+            </LineChart>
           </ResponsiveContainer>
         </div>
       </div>
@@ -354,12 +368,12 @@ export default function ExecutiveSummary() {
           <p className="mb-2">
             <span className="text-blue-400 font-semibold">Performance Overview: </span>
             FY 2026 consolidated revenue of £19.8B reflects a 3.2% year-on-year improvement, driven primarily by Luxury SUV segment volume recovery
-            and favourable GBP/USD movement in H1. Gross margin expansion to 18.5% (+70bps) was achieved despite a 19% rise in lithium and cobalt
-            costs, partially offset by SARIMAX-driven procurement hedging executed in Q4 FY2025.
+            and favourable GBP/USD movement in H1. Gross margin (Revenue − Material COGS) contracted to 35.9% (−60bps vs prior year 36.5%) as a 19% rise in lithium and cobalt
+            costs was only partially offset by SARIMAX-driven procurement hedging executed in Q4 FY2025. EBIT grew +8.3% to £1,401M as operating leverage absorbed the commodity headwind.
           </p>
           <p className="mb-2">
             <span className="text-yellow-400 font-semibold">Key Risk: </span>
-            Natural gas MAPE of 31% exceeds the 15% governance threshold, triggering mandatory scenario-based planning for H2 energy costs.
+            Natural gas MAPE of 31% exceeds the 20% high-volatility governance threshold, triggering mandatory scenario-based planning for H2 energy costs.
             The commodity cost index reached 119 in December (+19% YTD), with lithium variance of +12.3% vs forecast representing the largest
             single BOM exposure.
           </p>
@@ -404,8 +418,35 @@ export default function ExecutiveSummary() {
         <div className="rounded-xl p-6 border border-slate-700 flex flex-col items-center justify-center" style={{ backgroundColor: '#1e293b' }}>
           <h3 className="text-lg font-semibold text-slate-100 mb-2 self-start">Early-Warning Risk</h3>
           <RiskGauge score={ew.score} band={ew.band} size={240} label="Composite Score" />
-          {ew.top_drivers?.length > 0 && (
+          {/* Component score breakdown: shows WHAT is risky (score) and its weight in composite */}
+          {ew.components && typeof Object.values(ew.components)[0] === 'object' && (
             <div className="mt-4 w-full">
+              <div className="text-[11px] text-slate-500 uppercase tracking-wide mb-2">Risk components (score × weight)</div>
+              <div className="space-y-1.5">
+                {Object.entries(ew.components).map(([key, val]) => {
+                  const score = val?.score ?? val;
+                  const weight = val?.weight ?? null;
+                  const contribution = weight != null ? (score * weight).toFixed(1) : null;
+                  const barColor = score >= 70 ? '#ef4444' : score >= 45 ? '#f59e0b' : '#22c55e';
+                  return (
+                    <div key={key}>
+                      <div className="flex justify-between text-[11px] mb-0.5">
+                        <span className="text-slate-400 capitalize">{key}</span>
+                        <span className="text-slate-300 font-mono">
+                          {score}/100{weight != null ? ` · ${(weight * 100).toFixed(0)}% wt` : ''}{contribution != null ? ` = ${contribution} pts` : ''}
+                        </span>
+                      </div>
+                      <div className="h-1 rounded-full bg-slate-700">
+                        <div className="h-1 rounded-full" style={{ width: `${score}%`, backgroundColor: barColor }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {ew.top_drivers?.length > 0 && (
+            <div className="mt-3 w-full">
               <div className="text-[11px] text-slate-500 uppercase tracking-wide mb-1.5">Top drivers</div>
               <div className="flex flex-wrap gap-1.5">
                 {ew.top_drivers.slice(0, 3).map((dr, i) => {

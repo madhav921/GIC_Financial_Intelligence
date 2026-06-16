@@ -12,14 +12,26 @@ import { useAuth } from '../auth/AuthContext';
 import { can, PERMISSIONS } from '../auth/permissions';
 import { gicApi } from '../api/client';
 
+// Preset EBIT values derived from the simulation formula:
+//   meanEbit = BASE_EBIT × (1 + demand×0.9 − commodity×0.65 + fx×0.35)
+// fx is SIGNED: positive fx (GBP weaker vs USD) → POSITIVE for a net UK exporter.
+// marg = EBIT margin % = ebit / 19800 × 100  (Gross Margin is separately 35.9%).
+// var95 = approximate 5th-percentile EBIT (£M) from fat-tail Monte Carlo.
 const PRESETS = [
-  { name: 'Base Case',        demand: 0,    commodity: 0,    fx: 0,    color: '#3b82f6', ebit: 1401, var95: -705, marg: 18.5 },
-  { name: 'Bull Market',      demand: 0.10, commodity: -0.05, fx: -0.02, color: '#22c55e', ebit: 1712, var95: -580, marg: 20.8 },
-  { name: 'EU Demand -8%',    demand: -0.08, commodity: 0,  fx: 0,    color: '#f59e0b', ebit: 1201, var95: -780, marg: 16.9 },
-  { name: 'Commodity Crisis', demand: -0.05, commodity: 0.40, fx: 0.10, color: '#ef4444', ebit: 621,  var95: -1120, marg: 9.1 },
-  { name: 'Lithium +15%',     demand: 0,    commodity: 0.15, fx: 0,    color: '#f97316', ebit: 1148, var95: -820, marg: 15.7 },
-  { name: 'Rate Cuts',        demand: 0.05, commodity: -0.02, fx: 0,   color: '#8b5cf6', ebit: 1534, var95: -650, marg: 19.4 },
-  { name: 'Stagflation',      demand: -0.12, commodity: 0.25, fx: 0.08, color: '#dc2626', ebit: 445,  var95: -1350, marg: 6.8 },
+  // 1401×(1+0×0.9−0×0.65+0×0.35) = 1401
+  { name: 'Base Case',        demand: 0,     commodity: 0,    fx: 0,    color: '#3b82f6', ebit: 1401, var95: 1039, marg: 7.1 },
+  // 1401×(1+0.09+0.0325−0.007) = 1401×1.1155 ≈ 1563
+  { name: 'Bull Market',      demand: 0.10,  commodity: -0.05, fx: -0.02, color: '#22c55e', ebit: 1563, var95: 1068, marg: 7.9 },
+  // 1401×(1−0.072) = 1401×0.928 ≈ 1300
+  { name: 'EU Demand -8%',    demand: -0.08, commodity: 0,    fx: 0,    color: '#f59e0b', ebit: 1300, var95: 856,  marg: 6.6 },
+  // 1401×(1−0.045−0.26+0.035) = 1401×0.73 ≈ 1023
+  { name: 'Commodity Crisis', demand: -0.05, commodity: 0.40, fx: 0.10, color: '#ef4444', ebit: 1023, var95: 114,  marg: 5.2 },
+  // 1401×(1−0.0975) = 1401×0.9025 ≈ 1265
+  { name: 'Lithium +15%',     demand: 0,     commodity: 0.15, fx: 0,    color: '#f97316', ebit: 1265, var95: 800,  marg: 6.4 },
+  // 1401×(1+0.045+0.013) = 1401×1.058 ≈ 1482
+  { name: 'Rate Cuts',        demand: 0.05,  commodity: -0.02, fx: 0,   color: '#8b5cf6', ebit: 1482, var95: 1104, marg: 7.5 },
+  // 1401×(1−0.108−0.1625+0.028) = 1401×0.7575 ≈ 1061
+  { name: 'Stagflation',      demand: -0.12, commodity: 0.25, fx: 0.08, color: '#dc2626', ebit: 1061, var95: 237,  marg: 5.4 },
 ];
 
 const BASE_EBIT = 1401;
@@ -36,10 +48,12 @@ function randn() {
 }
 
 // Build a mock outcome distribution + summary stats from the shock vector.
+// FX coefficient is SIGNED: positive fx (GBP weaker) helps a net UK exporter.
+// Vol always uses absolute shocks since uncertainty is always positive.
 function mockSimulate(demand, commodity, fx, n) {
   const meanEbit =
-    BASE_EBIT * (1 + demand * 0.9 - commodity * 0.65 - Math.abs(fx) * 0.4);
-  const vol = BASE_EBIT * (0.14 + Math.abs(commodity) * 0.5 + Math.abs(demand) * 0.3 + Math.abs(fx) * 0.4);
+    BASE_EBIT * (1 + demand * 0.9 - commodity * 0.65 + fx * 0.35);
+  const vol = BASE_EBIT * (0.14 + Math.abs(commodity) * 0.5 + Math.abs(demand) * 0.3 + Math.abs(fx) * 0.3);
   const samples = new Array(n);
   for (let i = 0; i < n; i++) {
     const tail = Math.random() < 0.06 ? randn() * 2.2 : 0;
@@ -62,12 +76,13 @@ function mockSimulate(demand, commodity, fx, n) {
     bins[idx].count += 1;
   });
 
-  const margin = PRESETS[0].marg * (mean / BASE_EBIT);
+  // EBIT margin = simulated mean EBIT / fixed revenue (£19,800M)
+  const ebitMargin = (mean / 19800) * 100;
 
   return {
     stats: {
       operating_income: { mean: mean * 1e6, var_95: var95 * 1e6, cvar_95: cvar95 * 1e6, p25: pct(0.25) * 1e6, p75: pct(0.75) * 1e6 },
-      gross_margin: { mean: margin },
+      ebit_margin: { mean: ebitMargin },
     },
     _bins: bins,
     _mean: mean,
@@ -196,7 +211,7 @@ export default function ScenarioSimulation() {
               p25:    sim.operating_income?.p25    ?? local.stats.operating_income.p25,
               p75:    sim.operating_income?.p75    ?? local.stats.operating_income.p75,
             },
-            gross_margin: { mean: gmPct },
+            ebit_margin: { mean: gmPct },
           };
           // Align histogram reference lines with backend stats (convert raw £ → £M)
           merged._mean  = (sim.operating_income?.mean   ?? local._mean  * 1e6) / 1e6;
@@ -225,7 +240,7 @@ export default function ScenarioSimulation() {
   const ebit     = result ? result.stats?.operating_income?.mean  / 1e6 : null;
   const var95    = result ? result.stats?.operating_income?.var_95 / 1e6 : null;
   const cvar95   = result ? result.stats?.operating_income?.cvar_95 / 1e6 : null;
-  const margin   = result ? result.stats?.gross_margin?.mean : null;
+  const margin   = result ? result.stats?.ebit_margin?.mean : null;
   const ebitDelta = ebit != null ? ebit - BASE_EBIT : null;
 
   const tornado = useMemo(() => {
@@ -233,10 +248,12 @@ export default function ScenarioSimulation() {
     const dMag = Math.max(0.05, Math.abs(d));
     const cMag = Math.max(0.05, Math.abs(c));
     const fMag = Math.max(0.02, Math.abs(f));
+    // FX is directional for a net UK exporter: GBP weaker (+fx) → +EBIT, GBP stronger (−fx) → −EBIT.
+    // Tornado bars show the signed sensitivity range at current shock magnitude.
     return [
-      { name: 'Demand',    low: -BASE_EBIT * 0.9  * dMag, high: BASE_EBIT * 0.9  * dMag },
-      { name: 'Commodity', low: -BASE_EBIT * 0.65 * cMag, high: BASE_EBIT * 0.65 * cMag },
-      { name: 'FX',        low: -BASE_EBIT * 0.4  * fMag, high: BASE_EBIT * 0.4  * fMag },
+      { name: 'Demand',              low: -BASE_EBIT * 0.9  * dMag, high: BASE_EBIT * 0.9  * dMag },
+      { name: 'Commodity',           low: -BASE_EBIT * 0.65 * cMag, high: BASE_EBIT * 0.65 * cMag },
+      { name: 'FX (↑ GBP weaker)',  low: -BASE_EBIT * 0.35 * fMag, high: BASE_EBIT * 0.35 * fMag },
     ];
   }, [demand, commodity, fx]);
 
@@ -276,7 +293,7 @@ export default function ScenarioSimulation() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-white">Scenario Simulation</h1>
-          <p className="text-slate-400 text-sm mt-1">Monte Carlo · Fat-tail distributions (Student's t) · VaR / CVaR · Variance decomposition</p>
+          <p className="text-slate-400 text-sm mt-1">Monte Carlo · Fat-tail distributions (Student's t) · VaR / CVaR · FX positive = GBP weaker (net UK exporter benefit)</p>
         </div>
         <div className="flex items-center gap-2">
           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${canReal ? 'border-emerald-700 text-emerald-300 bg-emerald-900/20' : 'border-slate-600 text-slate-400 bg-slate-700/30'}`}>
@@ -444,8 +461,8 @@ export default function ScenarioSimulation() {
               <div className="grid grid-cols-1 gap-3">
                 {impactCard('Mean EBIT Δ vs Base', ebitDelta, ebitDelta >= 0, (v) => `${v >= 0 ? '+' : ''}£${Math.round(v).toLocaleString()}M`)}
                 <div className="grid grid-cols-2 gap-3">
-                  {impactCard('VaR (95%)', var95, false, (v) => `£${Math.round(v).toLocaleString()}M`)}
-                  {impactCard('Gross Margin', margin, margin >= 15, (v) => `${v.toFixed(1)}%`)}
+                  {impactCard('VaR (95%) — 5th pct EBIT', var95, false, (v) => `£${Math.round(v).toLocaleString()}M`)}
+                  {impactCard('EBIT Margin', margin, margin >= 7, (v) => `${v.toFixed(1)}%`)}
                 </div>
               </div>
               <div className="rounded-xl p-4 border border-slate-700 text-xs text-slate-400 space-y-1.5" style={{ backgroundColor: '#1e293b' }}>

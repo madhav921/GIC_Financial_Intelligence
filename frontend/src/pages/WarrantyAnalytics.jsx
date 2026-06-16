@@ -32,9 +32,13 @@ function buildMockForecast() {
     dates.push(dt.toLocaleDateString('en-GB', { month: 'short', year: '2-digit' }));
     base += 0.6 + (Math.random() - 0.4);
     const p = Number(base.toFixed(1));
+    // Symmetric ±19% around point = approximate 95% CI from EWMA residual std dev.
+    // Widened band reflects higher uncertainty over longer horizons.
+    const horizonFactor = 1 + i * 0.008;
+    const halfBand = p * 0.19 * horizonFactor;
     point.push(p);
-    lower.push(Number((p * 0.82).toFixed(1)));
-    upper.push(Number((p * 1.2).toFixed(1)));
+    lower.push(Number(Math.max(0, p - halfBand).toFixed(1)));
+    upper.push(Number((p + halfBand).toFixed(1)));
   }
   return { dates, point, lower, upper };
 }
@@ -194,7 +198,7 @@ export default function WarrantyAnalytics() {
             {/* Forecast */}
             <div className="lg:col-span-3 rounded-xl p-6 border border-slate-700" style={{ backgroundColor: '#1e293b' }}>
               <h3 className="text-lg font-semibold text-slate-100 mb-1">Warranty Cost Forecast</h3>
-              <p className="text-xs text-slate-400 mb-4">12-month point forecast with confidence interval (£M / month)</p>
+              <p className="text-xs text-slate-400 mb-4">12-month point forecast with 95% confidence band (£M / month) — derived from EWMA residual std dev</p>
               <ResponsiveContainer width="100%" height={300}>
                 <ComposedChart data={chartData} margin={{ top: 10, right: 16, left: 0, bottom: 5 }}>
                   <CartesianGrid stroke="#334155" strokeDasharray="3 3" vertical={false} />
@@ -209,7 +213,7 @@ export default function WarrantyAnalytics() {
               </ResponsiveContainer>
               <div className="flex items-center gap-5 mt-3 px-2">
                 <div className="flex items-center gap-1.5"><span className="w-6 h-0.5 bg-blue-500" /><span className="text-xs text-slate-400">Point forecast</span></div>
-                <div className="flex items-center gap-1.5"><span className="w-6 h-3 rounded-sm bg-blue-500/20" /><span className="text-xs text-slate-400">Confidence band</span></div>
+                <div className="flex items-center gap-1.5"><span className="w-6 h-3 rounded-sm bg-blue-500/20" /><span className="text-xs text-slate-400">95% CI</span></div>
               </div>
             </div>
 

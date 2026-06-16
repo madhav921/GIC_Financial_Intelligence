@@ -15,7 +15,7 @@ if (-not (Test-Path "$Root\venv")) {
     python -m venv "$Root\venv"
 }
 Write-Host "Installing Python dependencies..."
-& "$Root\venv\Scripts\pip.exe" install -q -r "$Root\requirements.txt"
+& "$Root\venv\Scripts\pip.exe" install -q -r "$Root\requirements-local.txt"
 
 # ── Node deps ─────────────────────────────────────────────────────────
 if (-not (Test-Path "$Root\frontend\node_modules")) {

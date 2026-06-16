@@ -8,35 +8,53 @@ import KPICard from '../components/Charts/KPICard';
 import LockedButton from '../components/common/LockedButton';
 import { PERMISSIONS } from '../auth/permissions';
 
+// Full P&L walk: Revenue → Gross Margin → EBIT → Net Income
+// Gross Margin = Revenue − Material COGS = 19800 − 12700 = 7100 (35.9%)
+// EBIT = 7100 − 495 − 1140 − 4064 = 1401 (7.1%)
+// Net Income = (1401 − 180) × (1 − 0.21) = 1221 × 0.79 = 965 (4.9%)
 const WATERFALL = [
-  { label: 'Net Revenue',    value: 19800, type: 'total' },
-  { label: 'Material COGS',  value: -12700, type: 'negative' },
-  { label: 'Gross Margin',   value: 7100,  type: 'total' },
-  { label: 'Warranty',       value: -495,  type: 'negative' },
-  { label: 'Depreciation',   value: -1140, type: 'negative' },
-  { label: 'Other OpEx',     value: -4064, type: 'negative' },
-  { label: 'EBIT',           value: 1401,  type: 'total' },
+  { label: 'Net Revenue',        value: 19800, type: 'total' },
+  { label: 'Material COGS',      value: -12700, type: 'negative' },
+  { label: 'Gross Margin',       value: 7100,  type: 'total' },
+  { label: 'Warranty',           value: -495,  type: 'negative' },
+  { label: 'Depreciation',       value: -1140, type: 'negative' },
+  { label: 'Other OpEx',         value: -4064, type: 'negative' },
+  { label: 'EBIT',               value: 1401,  type: 'total' },
+  { label: 'Net Finance Costs',  value: -180,  type: 'negative' },
+  { label: 'Pre-tax Profit',     value: 1221,  type: 'total' },
+  { label: 'Tax (21%)',          value: -256,  type: 'negative' },
+  { label: 'Net Income',         value: 965,   type: 'total' },
 ];
 
 const BASE_EBIT = 1401;
 
-// Stable monthly trend (revenue / margin% / ebit).
+// Stable monthly trend (revenue / gross margin % / ebit).
+// Quarterly multiplier uses [0.96, 1.00, 1.04] so each quarter cycle sums to 3.00
+// and the 12-month sum = 12 × average × seasonal_avg ≈ BASE_EBIT exactly.
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MONTHLY = MONTHS.map((m, i) => {
   const seasonal = 1 + 0.12 * Math.sin((i / 12) * Math.PI * 2);
   const revenue = Math.round((19800 / 12) * seasonal);
-  const margin = +(35.9 + Math.sin((i / 12) * Math.PI * 2 + 1) * 1.6).toFixed(1);
-  const ebit = Math.round((BASE_EBIT / 12) * seasonal * (0.92 + (i % 3) * 0.04));
+  // Gross margin oscillates around 35.9% — phased so peak aligns with Q3 (August)
+  const margin = +(35.9 + Math.sin((i / 12) * Math.PI * 2 - 0.5) * 1.6).toFixed(1);
+  // Quarterly multiplier sums to 3.00 per cycle (0.96+1.00+1.04), so annual total = BASE_EBIT
+  const quarterly = 0.96 + (i % 3) * 0.04;
+  const ebit = Math.round((BASE_EBIT / 12) * seasonal * quarterly);
   return { month: m, revenue, margin, ebit };
 });
 
+// BOM weights are % share of the strategic commodity basket (£3,300M tracked spend).
+// Impact per 1% = -(BOM_weight/100) × £3,300M × 0.01
+// e.g. Lithium 18%: -(0.18 × 3300 × 0.01) = -£5.94M ≈ -£6.0M
+// This is consistent with the Insights card: Lithium +12.3% → 12.3 × 6.0 ≈ £74M impact.
+const COMMODITY_BASKET_GBP = 3300; // £M — tracked strategic commodity spend (~26% of Material COGS)
 const SENSITIVITY = [
-  { commodity: 'Steel',      bomWeight: 22, impact1pct: -43.6 },
-  { commodity: 'Lithium',    bomWeight: 18, impact1pct: -35.6 },
-  { commodity: 'Aluminum',   bomWeight: 12, impact1pct: -23.8 },
-  { commodity: 'Cobalt',     bomWeight: 7,  impact1pct: -13.9 },
-  { commodity: 'Copper',     bomWeight: 6,  impact1pct: -11.9 },
-  { commodity: 'Nickel',     bomWeight: 5,  impact1pct: -9.9 },
+  { commodity: 'Steel',    bomWeight: 22, impact1pct: -Math.round(0.22 * COMMODITY_BASKET_GBP * 0.01 * 10) / 10 },
+  { commodity: 'Lithium',  bomWeight: 18, impact1pct: -Math.round(0.18 * COMMODITY_BASKET_GBP * 0.01 * 10) / 10 },
+  { commodity: 'Aluminum', bomWeight: 12, impact1pct: -Math.round(0.12 * COMMODITY_BASKET_GBP * 0.01 * 10) / 10 },
+  { commodity: 'Cobalt',   bomWeight: 7,  impact1pct: -Math.round(0.07 * COMMODITY_BASKET_GBP * 0.01 * 10) / 10 },
+  { commodity: 'Copper',   bomWeight: 6,  impact1pct: -Math.round(0.06 * COMMODITY_BASKET_GBP * 0.01 * 10) / 10 },
+  { commodity: 'Nickel',   bomWeight: 5,  impact1pct: -Math.round(0.05 * COMMODITY_BASKET_GBP * 0.01 * 10) / 10 },
 ];
 
 const SEGMENTS = [
@@ -99,10 +117,10 @@ export default function FinancialPnL() {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPICard title="Net Revenue"   value="£19.8B" subtitle="Annual" change="+4.2%" changeType="up" />
+        <KPICard title="Net Revenue"   value="£19.8B" subtitle="Annual" change="+3.2%" changeType="up" />
         <KPICard title="Gross Margin"  value="£7.1B"  subtitle="35.9%" change="-0.6pp" changeType="down" />
         <KPICard title="EBIT"          value="£1,401M" subtitle="7.1% margin" change="+8.3%" changeType="up" />
-        <KPICard title="COGS / Revenue" value="64.1%"  subtitle="Material fraction 45%" change="+0.4pp" changeType="down" />
+        <KPICard title="COGS / Revenue" value="64.1%"  subtitle="Commodity basket £3.3B of COGS" change="+0.4pp" changeType="down" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -142,7 +160,7 @@ export default function FinancialPnL() {
 
       {/* Segment contribution */}
       <div className="rounded-xl p-6 border border-slate-700" style={{ backgroundColor: '#1e293b' }}>
-        <h2 className="text-lg font-semibold text-slate-100 mb-4">Segment Contribution — Revenue (£M)</h2>
+        <h2 className="text-lg font-semibold text-slate-100 mb-4">Segment Contribution — Revenue &amp; Contribution Margins (£M)</h2>
         <ResponsiveContainer width="100%" height={240}>
           <BarChart data={SEGMENTS} margin={{ top: 4, right: 12, left: 0, bottom: 4 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
@@ -150,7 +168,7 @@ export default function FinancialPnL() {
             <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} width={56} tickFormatter={(v) => `£${v}M`} />
             <Tooltip
               contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #475569', borderRadius: 8 }}
-              formatter={(v, n, p) => [`£${v.toLocaleString()}M · ${p.payload.margin}% margin`, p.payload.segment]}
+              formatter={(v, n, p) => [`£${v.toLocaleString()}M · ${p.payload.margin}% contribution margin*`, p.payload.segment]}
             />
             <Bar dataKey="revenue" radius={[4, 4, 0, 0]}>
               {SEGMENTS.map((s, i) => <Cell key={i} fill={s.color} />)}
@@ -165,7 +183,7 @@ export default function FinancialPnL() {
               <th className="text-right pb-2">Revenue (£M)</th>
               <th className="text-right pb-2">COGS (£M)</th>
               <th className="text-right pb-2">Volume</th>
-              <th className="text-right pb-2">Gross Margin %</th>
+              <th className="text-right pb-2">Contribution Margin %*</th>
             </tr>
           </thead>
           <tbody>
@@ -182,6 +200,10 @@ export default function FinancialPnL() {
             ))}
           </tbody>
         </table>
+        <p className="text-[11px] text-slate-500 mt-3">
+          * Contribution margin after all costs allocated to each segment (material, warranty, depreciation, overhead).
+          Company-level Gross Margin (35.9%) uses Material COGS only and is higher because unallocated overhead sits above segment level.
+        </p>
       </div>
 
       {/* Commodity Sensitivity — interactive */}
@@ -189,7 +211,7 @@ export default function FinancialPnL() {
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div>
             <h2 className="text-lg font-semibold text-slate-100">Commodity Cost Sensitivity</h2>
-            <p className="text-slate-400 text-xs mt-1">Project the EBIT impact of a single-commodity price shock (BOM-weighted)</p>
+            <p className="text-slate-400 text-xs mt-1">EBIT impact of a single-commodity price shock — BOM weight × £3.3B commodity basket × shock %</p>
           </div>
           <div className="flex items-center gap-3">
             <select value={shockCommodity} onChange={(e) => setShockCommodity(e.target.value)}

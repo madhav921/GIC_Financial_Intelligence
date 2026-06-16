@@ -98,7 +98,7 @@ const MOCK_FEED = {
       severity: 'warning',
       priority: 2,
       title: 'Natural gas volatility breaches governance threshold',
-      finding: 'Natural gas forecast MAPE of 31% exceeds the 15% governance limit, adding £9M of unhedged plant energy risk.',
+      finding: 'Natural gas forecast MAPE of 31% exceeds the 20% high-volatility governance threshold, adding £9M of unhedged plant energy risk.',
       reasoning:
         'Model error has widened beyond the control band, mandating scenario-based planning rather than point forecasts for H2 energy.',
       impact_gbp: -9000000,
@@ -107,7 +107,7 @@ const MOCK_FEED = {
       recommended_action: 'Switch H2 energy budgeting to scenario bands and secure a fixed-price strip for baseload.',
       expected_action_savings_gbp: 5000000,
       affected_segments: ['Manufacturing'],
-      supporting_metrics: { mape: 31.0, threshold: 15.0 },
+      supporting_metrics: { mape: 31.0, threshold: 20.0 },
     },
     {
       id: 'INS-007',
@@ -147,9 +147,11 @@ const MOCK_FEED = {
   summary: {
     n_critical: 2,
     n_warning: 3,
-    total_impact_gbp: -36000000,
-    total_opportunity_gbp: 109000000,
-    weighted_confidence: 0.71,
+    // Net: -74-18+22-38+19-9+14+4 = -80M  |  Upside (positives): 22+19+14+4 = 59M
+    // Wtd confidence = Σ(|impact|×conf) / Σ|impact| = 145.63/198 ≈ 0.74
+    total_impact_gbp: -80000000,
+    total_opportunity_gbp: 59000000,
+    weighted_confidence: 0.74,
   },
 };
 

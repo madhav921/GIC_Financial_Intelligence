@@ -13,7 +13,7 @@ if [ ! -d venv ]; then
 fi
 source venv/bin/activate
 echo "Installing Python dependencies..."
-pip install -q -r requirements.txt
+pip install -q -r requirements-local.txt
 
 # ── Node deps ─────────────────────────────────────────────────────────
 if [ ! -d frontend/node_modules ]; then

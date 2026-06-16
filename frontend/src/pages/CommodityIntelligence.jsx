@@ -8,19 +8,24 @@ import LockedButton from '../components/common/LockedButton';
 import CorrelationHeatmap from '../components/Charts/CorrelationHeatmap';
 import { PERMISSIONS } from '../auth/permissions';
 
+// mase: Mean Absolute Scaled Error (benchmark vs naïve random-walk; <1 = beats naïve, >1 = worse).
+//   Primary scale-free metric — valid across commodities of different price magnitudes and handles zeros.
+// rmse_pct: Root Mean Square Error expressed as % of mean price.
+//   Penalises large spike errors more than MAPE — use for risk/hedging sizing decisions.
+// mape: Kept as reference but NOT the primary optimisation target (asymmetric, biased toward low forecasts).
 const COMMODITIES = [
-  { name: 'Steel',          weight: 22, category: 'Raw Material',   mape: 12.4, direction: 76, color: '#60a5fa', base: 650,   vol: 0.04, trend: 0.03 },
-  { name: 'Lithium',        weight: 18, category: 'Battery',        mape: 11.9, direction: 64, color: '#a78bfa', base: 18000, vol: 0.12, trend: -0.08 },
-  { name: 'Aluminum',       weight: 12, category: 'Raw Material',   mape: 16.7, direction: 68, color: '#34d399', base: 2200,  vol: 0.05, trend: 0.02 },
-  { name: 'Cobalt',         weight: 7,  category: 'Battery',        mape: 14.7, direction: 70, color: '#f472b6', base: 32000, vol: 0.10, trend: -0.05 },
-  { name: 'Copper',         weight: 6,  category: 'Raw Material',   mape: 7.0,  direction: 52, color: '#fb923c', base: 8500,  vol: 0.04, trend: 0.04 },
-  { name: 'Nickel',         weight: 5,  category: 'Battery',        mape: 10.8, direction: 55, color: '#facc15', base: 16000, vol: 0.08, trend: -0.03 },
-  { name: 'Platinum',       weight: 4,  category: 'Precious Metal', mape: 8.9,  direction: 60, color: '#e2e8f0', base: 980,   vol: 0.05, trend: 0.01 },
-  { name: 'Natural Gas',    weight: 4,  category: 'Energy',         mape: 31.1, direction: 62, color: '#38bdf8', base: 3.2,   vol: 0.20, trend: 0.0 },
-  { name: 'Palladium',      weight: 3,  category: 'Precious Metal', mape: 29.1, direction: 68, color: '#c084fc', base: 1050,  vol: 0.15, trend: -0.12 },
-  { name: 'Polypropylene',  weight: 3,  category: 'Polymer',        mape: 9.8,  direction: 70, color: '#4ade80', base: 1100,  vol: 0.06, trend: 0.02 },
-  { name: 'Rhodium',        weight: 2,  category: 'Precious Metal', mape: 14.2, direction: 55, color: '#fbbf24', base: 4800,  vol: 0.12, trend: -0.10 },
-  { name: 'ABS Resin',      weight: 2,  category: 'Polymer',        mape: 17.2, direction: 64, color: '#f87171', base: 1400,  vol: 0.07, trend: 0.01 },
+  { name: 'Steel',         weight: 22, category: 'Raw Material',   mape: 12.4, mase: 0.84, rmse_pct: 14.8, direction: 76, color: '#60a5fa', base: 650,   vol: 0.04, trend: 0.03 },
+  { name: 'Lithium',       weight: 18, category: 'Battery',        mape: 11.9, mase: 0.76, rmse_pct: 16.2, direction: 64, color: '#a78bfa', base: 18000, vol: 0.12, trend: -0.08 },
+  { name: 'Aluminum',      weight: 12, category: 'Raw Material',   mape: 16.7, mase: 0.92, rmse_pct: 21.3, direction: 68, color: '#34d399', base: 2200,  vol: 0.05, trend: 0.02 },
+  { name: 'Cobalt',        weight: 7,  category: 'Battery',        mape: 14.7, mase: 0.88, rmse_pct: 19.1, direction: 70, color: '#f472b6', base: 32000, vol: 0.10, trend: -0.05 },
+  { name: 'Copper',        weight: 6,  category: 'Raw Material',   mape: 7.0,  mase: 0.62, rmse_pct:  9.1, direction: 52, color: '#fb923c', base: 8500,  vol: 0.04, trend: 0.04 },
+  { name: 'Nickel',        weight: 5,  category: 'Battery',        mape: 10.8, mase: 0.78, rmse_pct: 14.6, direction: 55, color: '#facc15', base: 16000, vol: 0.08, trend: -0.03 },
+  { name: 'Platinum',      weight: 4,  category: 'Precious Metal', mape: 8.9,  mase: 0.71, rmse_pct: 11.2, direction: 60, color: '#e2e8f0', base: 980,   vol: 0.05, trend: 0.01 },
+  { name: 'Natural Gas',   weight: 4,  category: 'Energy',         mape: 31.1, mase: 1.24, rmse_pct: 42.7, direction: 62, color: '#38bdf8', base: 3.2,   vol: 0.20, trend: 0.0 },
+  { name: 'Palladium',     weight: 3,  category: 'Precious Metal', mape: 29.1, mase: 1.18, rmse_pct: 38.4, direction: 68, color: '#c084fc', base: 1050,  vol: 0.15, trend: -0.12 },
+  { name: 'Polypropylene', weight: 3,  category: 'Polymer',        mape: 9.8,  mase: 0.74, rmse_pct: 12.3, direction: 70, color: '#4ade80', base: 1100,  vol: 0.06, trend: 0.02 },
+  { name: 'Rhodium',       weight: 2,  category: 'Precious Metal', mape: 14.2, mase: 0.96, rmse_pct: 19.8, direction: 55, color: '#fbbf24', base: 4800,  vol: 0.12, trend: -0.10 },
+  { name: 'ABS Resin',     weight: 2,  category: 'Polymer',        mape: 17.2, mase: 0.94, rmse_pct: 22.1, direction: 64, color: '#f87171', base: 1400,  vol: 0.07, trend: 0.01 },
 ];
 
 const FFN_METRICS = {
@@ -100,12 +105,14 @@ function buildCorr(names) {
   return m;
 }
 
+// Model comparison: MASE is the primary metric (scale-free, beats-naïve benchmark).
+// RMSE_pct penalises large spikes — relevant for hedging decisions.
+// MAPE retained as reference only.
 const MODELS = {
-  // per-commodity-ish but driven off base mape for realism
-  rows: (mape, direction) => [
-    { model: 'SARIMAX', mape: +(mape * 1.08).toFixed(1), dir: Math.max(40, direction - 4), weight: 55 },
-    { model: 'XGBoost', mape: +(mape * 1.05).toFixed(1), dir: direction, weight: 45 },
-    { model: 'Ensemble', mape: +(mape * 0.92).toFixed(1), dir: Math.min(95, direction + 5), weight: 100, best: true },
+  rows: (mape, mase, rmse_pct, direction) => [
+    { model: 'SARIMAX', mape: +(mape * 1.08).toFixed(1), mase: +(mase * 1.07).toFixed(2), rmse: +(rmse_pct * 1.09).toFixed(1), dir: Math.max(40, direction - 4), weight: 55 },
+    { model: 'XGBoost', mape: +(mape * 1.05).toFixed(1), mase: +(mase * 1.04).toFixed(2), rmse: +(rmse_pct * 1.06).toFixed(1), dir: direction, weight: 45 },
+    { model: 'Ensemble', mape: +(mape * 0.92).toFixed(1), mase: +(mase * 0.91).toFixed(2), rmse: +(rmse_pct * 0.90).toFixed(1), dir: Math.min(95, direction + 5), weight: 100, best: true },
   ],
 };
 
@@ -140,7 +147,7 @@ export default function CommodityIntelligence() {
   const corrNames = COMMODITIES.slice(0, 8).map((c) => c.name);
   const corr = useMemo(() => buildCorr(corrNames), [corrNames]);
 
-  const modelRows = MODELS.rows(commodity.mape, commodity.direction);
+  const modelRows = MODELS.rows(commodity.mape, commodity.mase, commodity.rmse_pct, commodity.direction);
 
   const toggle = (k) => setOverlays((o) => ({ ...o, [k]: !o[k] }));
 
@@ -234,7 +241,7 @@ export default function CommodityIntelligence() {
               <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} width={58} />
               <Tooltip content={<ChartTip />} />
               <Legend wrapperStyle={{ fontSize: '12px', color: '#94a3b8', paddingTop: 8 }} />
-              {overlays.forecast && <Area type="monotone" dataKey="ciUpper" stroke="none" fill="url(#ciGrad)" name="Forecast CI" legendType="none" isAnimationActive={false} />}
+              {overlays.forecast && <Area type="monotone" dataKey="ciUpper" stroke="none" fill="url(#ciGrad)" name="~80% CI" legendType="none" isAnimationActive={false} />}
               {overlays.forecast && <Area type="monotone" dataKey="ciLower" stroke="none" fill="#1e293b" legendType="none" isAnimationActive={false} />}
               {overlays.bollinger && <Line type="monotone" dataKey="bbUpper" stroke="#64748b" strokeWidth={1} strokeDasharray="3 3" dot={false} name="Bollinger Upper" />}
               {overlays.bollinger && <Line type="monotone" dataKey="bbLower" stroke="#64748b" strokeWidth={1} strokeDasharray="3 3" dot={false} name="Bollinger Lower" legendType="none" />}
@@ -269,7 +276,18 @@ export default function CommodityIntelligence() {
           <div className="rounded-xl p-5 border border-slate-700" style={{ backgroundColor: '#1e293b' }}>
             <h3 className="text-sm font-semibold text-slate-300 mb-3">Forecast Accuracy (2024 Backtest)</h3>
             <div className="space-y-2 text-sm">
-              <div className="flex justify-between"><span className="text-slate-400">CV MAPE</span><span className={mapeColor(commodity.mape)}>{commodity.mape}%</span></div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400">MASE <span className="text-[10px] text-slate-600">(primary)</span></span>
+                <span className={commodity.mase < 0.8 ? 'text-green-400' : commodity.mase < 1.0 ? 'text-yellow-400' : 'text-red-400'}>{commodity.mase.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400">RMSE <span className="text-[10px] text-slate-600">(spike risk)</span></span>
+                <span className={commodity.rmse_pct < 15 ? 'text-green-400' : commodity.rmse_pct < 25 ? 'text-yellow-400' : 'text-red-400'}>{commodity.rmse_pct}%</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">MAPE <span className="text-[10px] text-slate-600">(ref only)</span></span>
+                <span className={mapeColor(commodity.mape)}>{commodity.mape}%</span>
+              </div>
               <div className="flex justify-between"><span className="text-slate-400">Directional Acc.</span><span className="text-blue-400">{commodity.direction}%</span></div>
               <div className="flex justify-between"><span className="text-slate-400">BOM Weight</span><span className="text-slate-200">{commodity.weight}%</span></div>
               <div className="flex justify-between items-center"><span className="text-slate-400">Status</span><Badge label={mapeStatus(commodity.mape)} color={commodity.mape < 12 ? 'green' : commodity.mape < 20 ? 'yellow' : 'red'} /></div>
@@ -289,7 +307,9 @@ export default function CommodityIntelligence() {
                 {m.best ? <Badge label="Ensemble (active)" color="blue" /> : <span className="text-xs text-slate-500">weight {m.weight}%</span>}
               </div>
               <div className="space-y-2 text-sm">
-                <div className="flex justify-between"><span className="text-slate-400">MAPE</span><span className={mapeColor(m.mape)}>{m.mape}%</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">MASE <span className="text-[10px] text-slate-600">(primary)</span></span><span className={m.mase < 0.8 ? 'text-green-400' : m.mase < 1.0 ? 'text-yellow-400' : 'text-red-400'}>{m.mase}</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">RMSE <span className="text-[10px] text-slate-600">(spikes)</span></span><span className={m.rmse < 15 ? 'text-green-400' : m.rmse < 25 ? 'text-yellow-400' : 'text-red-400'}>{m.rmse}%</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">MAPE <span className="text-[10px] text-slate-600">(ref)</span></span><span className={mapeColor(m.mape)}>{m.mape}%</span></div>
                 <div className="flex justify-between"><span className="text-slate-400">Directional Acc.</span><span className="text-blue-400">{m.dir}%</span></div>
                 <div className="mt-1">
                   <div className="h-1.5 rounded-full bg-slate-700">
@@ -305,7 +325,7 @@ export default function CommodityIntelligence() {
       {/* Correlation heatmap */}
       <div className="rounded-xl p-6 border border-slate-700" style={{ backgroundColor: '#1e293b' }}>
         <h2 className="text-lg font-semibold text-slate-100 mb-1">Cross-Commodity Correlation</h2>
-        <p className="text-slate-500 text-xs mb-4">Pairwise price correlation (top-8 by BOM weight) — hover to inspect</p>
+        <p className="text-slate-500 text-xs mb-4">Pairwise log-return correlation (top-8 by BOM weight) — computed on monthly price changes</p>
         <CorrelationHeatmap labels={corrNames} matrix={corr} />
       </div>
 

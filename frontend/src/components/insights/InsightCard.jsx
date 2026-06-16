@@ -152,7 +152,10 @@ export default function InsightCard({ insight, defaultExpanded = false }) {
                   </span>
                   {savings > 0 && (
                     <span className="text-sm font-bold text-emerald-300 tabular-nums whitespace-nowrap">
-                      {fmtGBP(savings)} <span className="text-[10px] text-emerald-500 font-medium">est. savings</span>
+                      {fmtGBP(savings)}{' '}
+                      <span className="text-[10px] text-emerald-500 font-medium">
+                        {insight.category === 'Warranty' ? 'est. future cost avoidance' : 'est. savings'}
+                      </span>
                     </span>
                   )}
                 </div>
