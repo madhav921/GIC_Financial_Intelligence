@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import {
   ResponsiveContainer, ComposedChart, Line, Area, XAxis, YAxis,
   CartesianGrid, Tooltip, Legend,
@@ -7,6 +7,7 @@ import Badge from '../components/common/Badge';
 import LockedButton from '../components/common/LockedButton';
 import CorrelationHeatmap from '../components/Charts/CorrelationHeatmap';
 import { PERMISSIONS } from '../auth/permissions';
+import { gicApi } from '../api/client';
 
 // mase: Mean Absolute Scaled Error (benchmark vs naïve random-walk; <1 = beats naïve, >1 = worse).
 //   Primary scale-free metric — valid across commodities of different price magnitudes and handles zeros.
@@ -43,15 +44,16 @@ const FFN_METRICS = {
   'ABS Resin': { cagr: 1.2, sharpe: 0.17, sortino: 0.23, maxDD: -28.6 },
 };
 
-// Deterministic pseudo-random so charts are stable across renders.
+// Deterministic pseudo-random so static charts are stable across renders.
 function seeded(seed) {
   let s = seed % 2147483647;
   if (s <= 0) s += 2147483646;
   return () => ((s = (s * 16807) % 2147483647) - 1) / 2147483646;
 }
 
-// Build 24m history + `horizon` months of forecast with CI band, MA20, Bollinger.
-function buildSeries(c, horizon) {
+// Build 24m history with MA/Bollinger — only the history portion,
+// not forecast (forecast comes from the backend when available).
+function buildHistory(c) {
   const rnd = seeded(c.name.split('').reduce((a, ch) => a + ch.charCodeAt(0), 7));
   const hist = [];
   let price = c.base;
@@ -62,32 +64,32 @@ function buildSeries(c, horizon) {
     price = Math.max(price * (1 + c.trend / 12 + (rnd() - 0.5) * c.vol), c.base * 0.2);
     hist.push({ date: d.toISOString().slice(0, 7), value: Math.round(price * 100) / 100, kind: 'history' });
   }
-  // Moving average + Bollinger (20-period proxy = window 6 on monthly)
   const win = 6;
-  const withMA = hist.map((row, i) => {
+  return hist.map((row, i) => {
     const slice = hist.slice(Math.max(0, i - win + 1), i + 1).map((r) => r.value);
     const mean = slice.reduce((a, b) => a + b, 0) / slice.length;
     const sd = Math.sqrt(slice.reduce((a, b) => a + (b - mean) ** 2, 0) / slice.length);
     return { ...row, ma: Math.round(mean * 100) / 100, bbUpper: Math.round((mean + 2 * sd) * 100) / 100, bbLower: Math.round((mean - 2 * sd) * 100) / 100 };
   });
-  // Forecast
-  const last = hist[hist.length - 1].value;
-  const fc = [];
-  let f = last;
-  for (let i = 1; i <= horizon; i++) {
+}
+
+// Fallback seeded forecast when backend is unavailable.
+function buildFallbackForecast(c, horizon, lastPrice) {
+  const now = new Date(2026, 5, 1);
+  let f = lastPrice;
+  return Array.from({ length: horizon }, (_, i) => {
     const d = new Date(now);
-    d.setMonth(d.getMonth() + i);
+    d.setMonth(d.getMonth() + i + 1);
     f = f * (1 + c.trend / 12);
-    const widen = 1 + i * 0.012;
-    fc.push({
+    const widen = 1 + (i + 1) * 0.012;
+    return {
       date: d.toISOString().slice(0, 7),
       forecast: Math.round(f * 100) / 100,
       ciUpper: Math.round(f * (1 + 0.08 * widen) * 100) / 100,
       ciLower: Math.round(f * (1 - 0.08 * widen) * 100) / 100,
       kind: 'forecast',
-    });
-  }
-  return [...withMA, ...fc];
+    };
+  });
 }
 
 // Mock cross-commodity correlation matrix (stable).
@@ -105,9 +107,6 @@ function buildCorr(names) {
   return m;
 }
 
-// Model comparison: MASE is the primary metric (scale-free, beats-naïve benchmark).
-// RMSE_pct penalises large spikes — relevant for hedging decisions.
-// MAPE retained as reference only.
 const MODELS = {
   rows: (mape, mase, rmse_pct, direction) => [
     { model: 'SARIMAX', mape: +(mape * 1.08).toFixed(1), mase: +(mase * 1.07).toFixed(2), rmse: +(rmse_pct * 1.09).toFixed(1), dir: Math.max(40, direction - 4), weight: 55 },
@@ -115,6 +114,11 @@ const MODELS = {
     { model: 'Ensemble', mape: +(mape * 0.92).toFixed(1), mase: +(mase * 0.91).toFixed(2), rmse: +(rmse_pct * 0.90).toFixed(1), dir: Math.min(95, direction + 5), weight: 100, best: true },
   ],
 };
+
+// Map frontend display names to backend API names.
+function toApiName(displayName) {
+  return displayName.replace(/ /g, '_');
+}
 
 const mapeColor = (m) => (m < 12 ? 'text-green-400' : m < 20 ? 'text-yellow-400' : 'text-red-400');
 const mapeStatus = (m) => (m < 12 ? 'Good' : m < 20 ? 'Adequate' : 'High Uncertainty');
@@ -140,25 +144,89 @@ export default function CommodityIntelligence() {
   const [horizon, setHorizon] = useState(12);
   const [overlays, setOverlays] = useState({ ma: true, bollinger: false, forecast: true });
 
+  // Live forecast state keyed by "{commodity}:{horizon}"
+  const [liveForecasts, setLiveForecasts] = useState({});
+  const [forecastLoading, setForecastLoading] = useState(false);
+  const [forecastSource, setForecastSource] = useState('loading');
+
   const commodity = COMMODITIES.find((c) => c.name === selected) || COMMODITIES[4];
   const ffn = FFN_METRICS[selected] || {};
-  const series = useMemo(() => buildSeries(commodity, horizon), [commodity, horizon]);
+
+  // Historical data (seeded, stable)
+  const history = useMemo(() => buildHistory(commodity), [commodity]);
+
+  // Fetch real forecast from backend on commodity/horizon change
+  const fetchForecast = useCallback(async (name, h) => {
+    const key = `${name}:${h}`;
+    if (liveForecasts[key]) return; // already cached
+
+    setForecastLoading(true);
+    try {
+      const result = await gicApi.forecastCommodity(toApiName(name), h);
+      setLiveForecasts((prev) => ({ ...prev, [key]: result }));
+      setForecastSource('live');
+    } catch {
+      setForecastSource('mock');
+    }
+    setForecastLoading(false);
+  }, [liveForecasts]);
+
+  useEffect(() => {
+    fetchForecast(selected, horizon);
+  }, [selected, horizon]); // eslint-disable-line
+
+  // Merge history + real/fallback forecast
+  const series = useMemo(() => {
+    const key = `${selected}:${horizon}`;
+    const fc = liveForecasts[key];
+    const lastHistVal = history[history.length - 1]?.value ?? commodity.base;
+
+    let forecastPoints;
+    if (fc?.dates?.length) {
+      // Real backend forecast: SARIMAX trained on data/raw/ (or data/synthetic/ fallback)
+      forecastPoints = fc.dates.map((date, i) => ({
+        date: typeof date === 'string' ? date.slice(0, 7) : date,
+        forecast: Math.round((fc.point_forecast[i] ?? 0) * 100) / 100,
+        ciUpper: Math.round((fc.upper_80[i] ?? 0) * 100) / 100,
+        ciLower: Math.round((fc.lower_80[i] ?? 0) * 100) / 100,
+        kind: 'forecast',
+      }));
+    } else {
+      forecastPoints = buildFallbackForecast(commodity, horizon, lastHistVal);
+    }
+
+    return [...history, ...forecastPoints];
+  }, [history, commodity, horizon, selected, liveForecasts]);
 
   const corrNames = COMMODITIES.slice(0, 8).map((c) => c.name);
   const corr = useMemo(() => buildCorr(corrNames), [corrNames]);
-
   const modelRows = MODELS.rows(commodity.mape, commodity.mase, commodity.rmse_pct, commodity.direction);
 
   const toggle = (k) => setOverlays((o) => ({ ...o, [k]: !o[k] }));
 
+  const forecastKey = `${selected}:${horizon}`;
+  const hasLiveForecast = !!liveForecasts[forecastKey]?.dates?.length;
+
   return (
     <div className="max-w-7xl mx-auto space-y-6">
-      {/* Backend connect banner */}
-      <div className="rounded-lg px-4 py-3 text-xs text-slate-400 border border-slate-700 flex items-center gap-2" style={{ backgroundColor: '#1e293b' }}>
-        <span className="text-blue-400">ℹ️</span>
-        Connect backend:{' '}
-        <code className="text-blue-300 font-mono">uvicorn src.api.app:app --port 8000</code>
-        {' '}— showing mock data while offline.
+      {/* Data source banner */}
+      <div className={`rounded-lg px-4 py-3 text-xs border flex items-center gap-2 ${hasLiveForecast ? 'border-green-700 text-green-300 bg-green-900/15' : 'text-slate-400 border-slate-700'}`} style={!hasLiveForecast ? { backgroundColor: '#1e293b' } : {}}>
+        {hasLiveForecast ? (
+          <>
+            <span className="text-green-400 font-bold">●</span>
+            <span>Live forecast — SARIMAX ensemble trained on real data from <code className="font-mono">data/raw/commodity_prices.csv</code> (Yahoo Finance, 7y monthly)</span>
+          </>
+        ) : forecastLoading ? (
+          <>
+            <span className="text-blue-400">↻</span>
+            <span>Loading forecast from backend...</span>
+          </>
+        ) : (
+          <>
+            <span className="text-yellow-400">ℹ️</span>
+            <span>Backend offline — showing seeded mock forecast. Run <code className="text-blue-300 font-mono">uvicorn src.api.app:app --port 8000</code> for SARIMAX+XGBoost real forecasts.</span>
+          </>
+        )}
       </div>
 
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -197,9 +265,10 @@ export default function CommodityIntelligence() {
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-semibold text-slate-100">{selected} — Price &amp; Forecast</h2>
               <Badge label={commodity.category} color="blue" />
+              {hasLiveForecast && <Badge label="Live Forecast" color="green" />}
+              {forecastLoading && <span className="text-xs text-slate-400 animate-pulse">Loading...</span>}
             </div>
             <div className="flex items-center gap-3">
-              {/* Overlay toggles */}
               <div className="flex gap-1.5">
                 {[
                   { k: 'ma', label: 'MA' },
@@ -241,13 +310,13 @@ export default function CommodityIntelligence() {
               <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} width={58} />
               <Tooltip content={<ChartTip />} />
               <Legend wrapperStyle={{ fontSize: '12px', color: '#94a3b8', paddingTop: 8 }} />
-              {overlays.forecast && <Area type="monotone" dataKey="ciUpper" stroke="none" fill="url(#ciGrad)" name="~80% CI" legendType="none" isAnimationActive={false} />}
+              {overlays.forecast && <Area type="monotone" dataKey="ciUpper" stroke="none" fill="url(#ciGrad)" name={hasLiveForecast ? '~80% CI (SARIMAX)' : '~80% CI'} legendType="none" isAnimationActive={false} />}
               {overlays.forecast && <Area type="monotone" dataKey="ciLower" stroke="none" fill="#1e293b" legendType="none" isAnimationActive={false} />}
               {overlays.bollinger && <Line type="monotone" dataKey="bbUpper" stroke="#64748b" strokeWidth={1} strokeDasharray="3 3" dot={false} name="Bollinger Upper" />}
               {overlays.bollinger && <Line type="monotone" dataKey="bbLower" stroke="#64748b" strokeWidth={1} strokeDasharray="3 3" dot={false} name="Bollinger Lower" legendType="none" />}
               {overlays.ma && <Line type="monotone" dataKey="ma" stroke="#fbbf24" strokeWidth={1.5} dot={false} name="MA (6m)" />}
-              <Line type="monotone" dataKey="value" stroke={commodity.color} strokeWidth={2.5} dot={false} name="Price" connectNulls />
-              {overlays.forecast && <Line type="monotone" dataKey="forecast" stroke={commodity.color} strokeWidth={2} strokeDasharray="5 4" dot={false} name="Forecast" connectNulls />}
+              <Line type="monotone" dataKey="value" stroke={commodity.color} strokeWidth={2.5} dot={false} name="Price (history)" connectNulls />
+              {overlays.forecast && <Line type="monotone" dataKey="forecast" stroke={commodity.color} strokeWidth={2} strokeDasharray="5 4" dot={false} name={hasLiveForecast ? 'Forecast (SARIMAX+XGBoost)' : 'Forecast (mock)'} connectNulls />}
             </ComposedChart>
           </ResponsiveContainer>
         </div>
@@ -274,23 +343,39 @@ export default function CommodityIntelligence() {
 
           {/* Forecast accuracy summary */}
           <div className="rounded-xl p-5 border border-slate-700" style={{ backgroundColor: '#1e293b' }}>
-            <h3 className="text-sm font-semibold text-slate-300 mb-3">Forecast Accuracy (2024 Backtest)</h3>
+            <h3 className="text-sm font-semibold text-slate-300 mb-3">
+              Forecast Accuracy (Backtest)
+              {hasLiveForecast && liveForecasts[forecastKey]?.metrics && (
+                <span className="ml-1.5 text-[10px] text-green-400 font-normal">● Live metrics</span>
+              )}
+            </h3>
             <div className="space-y-2 text-sm">
-              <div className="flex justify-between items-center">
-                <span className="text-slate-400">MASE <span className="text-[10px] text-slate-600">(primary)</span></span>
-                <span className={commodity.mase < 0.8 ? 'text-green-400' : commodity.mase < 1.0 ? 'text-yellow-400' : 'text-red-400'}>{commodity.mase.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-slate-400">RMSE <span className="text-[10px] text-slate-600">(spike risk)</span></span>
-                <span className={commodity.rmse_pct < 15 ? 'text-green-400' : commodity.rmse_pct < 25 ? 'text-yellow-400' : 'text-red-400'}>{commodity.rmse_pct}%</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">MAPE <span className="text-[10px] text-slate-600">(ref only)</span></span>
-                <span className={mapeColor(commodity.mape)}>{commodity.mape}%</span>
-              </div>
-              <div className="flex justify-between"><span className="text-slate-400">Directional Acc.</span><span className="text-blue-400">{commodity.direction}%</span></div>
-              <div className="flex justify-between"><span className="text-slate-400">BOM Weight</span><span className="text-slate-200">{commodity.weight}%</span></div>
-              <div className="flex justify-between items-center"><span className="text-slate-400">Status</span><Badge label={mapeStatus(commodity.mape)} color={commodity.mape < 12 ? 'green' : commodity.mape < 20 ? 'yellow' : 'red'} /></div>
+              {(() => {
+                const liveMetrics = hasLiveForecast ? liveForecasts[forecastKey]?.metrics : null;
+                const mase = liveMetrics?.mase ?? commodity.mase;
+                const rmse = liveMetrics?.rmse_pct ?? commodity.rmse_pct;
+                const mape = liveMetrics?.mape ?? commodity.mape;
+                const dir = commodity.direction;
+                return (
+                  <>
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-400">MASE <span className="text-[10px] text-slate-600">(primary)</span></span>
+                      <span className={mase < 0.8 ? 'text-green-400' : mase < 1.0 ? 'text-yellow-400' : 'text-red-400'}>{mase.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-400">RMSE <span className="text-[10px] text-slate-600">(spike risk)</span></span>
+                      <span className={rmse < 15 ? 'text-green-400' : rmse < 25 ? 'text-yellow-400' : 'text-red-400'}>{rmse.toFixed(1)}%</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">MAPE <span className="text-[10px] text-slate-600">(ref only)</span></span>
+                      <span className={mapeColor(mape)}>{mape.toFixed(1)}%</span>
+                    </div>
+                    <div className="flex justify-between"><span className="text-slate-400">Directional Acc.</span><span className="text-blue-400">{dir}%</span></div>
+                    <div className="flex justify-between"><span className="text-slate-400">BOM Weight</span><span className="text-slate-200">{commodity.weight}%</span></div>
+                    <div className="flex justify-between items-center"><span className="text-slate-400">Status</span><Badge label={mapeStatus(mape)} color={mape < 12 ? 'green' : mape < 20 ? 'yellow' : 'red'} /></div>
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -348,7 +433,12 @@ export default function CommodityIntelligence() {
               {COMMODITIES.map((c, i) => (
                 <tr key={i} onClick={() => setSelected(c.name)}
                   className={`border-b border-slate-800 cursor-pointer transition-colors ${selected === c.name ? 'bg-blue-900/20' : 'hover:bg-slate-800/50'}`}>
-                  <td className="py-2 text-slate-200 font-medium">{c.name}</td>
+                  <td className="py-2 text-slate-200 font-medium">
+                    {c.name}
+                    {liveForecasts[`${c.name}:${horizon}`]?.dates?.length > 0 && (
+                      <span className="ml-1.5 text-[9px] text-green-500 font-bold">●</span>
+                    )}
+                  </td>
                   <td className="py-2 text-slate-400">{c.category}</td>
                   <td className="py-2 text-right">
                     <div className="flex items-center justify-end gap-2">

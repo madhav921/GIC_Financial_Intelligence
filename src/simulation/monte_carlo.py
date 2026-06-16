@@ -345,7 +345,7 @@ class MonteCarloEngine:
                 float(np.mean(total_oi[total_oi <= np.percentile(total_oi, 5)])) - float(np.mean(total_oi)),
                 0,
             ),
-            "annual_mean_oi": round(float(np.mean(total_oi)) * len(base_pnl), 0),
+            "annual_mean_oi": round(float(np.mean(total_oi)), 0),
         }
 
         logger.info(

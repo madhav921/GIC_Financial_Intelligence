@@ -38,9 +38,15 @@ def _build_histogram_bins(oi_dist: np.ndarray, n_bins: int = N_HISTOGRAM_BINS) -
 async def run_scenario(request: ScenarioRequest):
     """Run a what-if scenario with Monte Carlo simulation."""
     try:
+        import pandas as _pd
         loader = DataLoader()
         sales_df = loader.load_sales_data()
         commodity_df = loader.load_commodity_prices()
+
+        # Limit to most recent year so scenario P&L is annual (not 7-year cumulative).
+        sales_df["date"] = _pd.to_datetime(sales_df["date"])
+        most_recent_year = int(sales_df["date"].dt.year.max())
+        sales_df = sales_df[sales_df["date"].dt.year == most_recent_year].copy()
 
         cfm = CommodityForecastModel()
         commodity_index_df = cfm.generate_commodity_index(commodity_df)
@@ -121,8 +127,13 @@ async def compare_presets():
     """Run and compare all preset scenarios."""
     try:
         loader = DataLoader()
+        import pandas as _pd
         sales_df = loader.load_sales_data()
         commodity_df = loader.load_commodity_prices()
+
+        sales_df["date"] = _pd.to_datetime(sales_df["date"])
+        most_recent_year = int(sales_df["date"].dt.year.max())
+        sales_df = sales_df[sales_df["date"].dt.year == most_recent_year].copy()
 
         cfm = CommodityForecastModel()
         commodity_index_df = cfm.generate_commodity_index(commodity_df)
@@ -155,9 +166,16 @@ async def variance_decomposition():
         cfm = CommodityForecastModel()
         commodity_index_df = cfm.generate_commodity_index(commodity_df)
 
+        # Limit to the most recent 12 calendar months so decompose_variance
+        # produces single-year risk metrics, not a 7-year cumulative sum.
+        import pandas as _pd
+        sales_df["date"] = _pd.to_datetime(sales_df["date"])
+        most_recent_year = int(sales_df["date"].dt.year.max())
+        sales_df_yr = sales_df[sales_df["date"].dt.year == most_recent_year].copy()
+
         mc_engine = MonteCarloEngine()
         result = mc_engine.decompose_variance(
-            sales_df=sales_df,
+            sales_df=sales_df_yr,
             commodity_index_df=commodity_index_df,
             n_simulations=3000,
         )
@@ -187,8 +205,24 @@ async def monthly_fan():
         financial_model = FinancialModel()
         base_pnl = financial_model.build_pnl(sales_df, commodity_index_df)
 
+        # Aggregate across all segments to get one row per calendar month.
+        # run_monthly_fan expects monthly rows; pnl_df has one row per (date, segment).
+        base_pnl_monthly = (
+            base_pnl.groupby("date", as_index=False)
+            .agg(
+                net_revenue=("net_revenue", "sum"),
+                total_cogs=("total_cogs", "sum"),
+                gross_margin=("gross_margin", "sum"),
+                operating_income=("operating_income", "sum"),
+            )
+            .sort_values("date")
+            .reset_index(drop=True)
+        )
+        # Use the last 12 months as the base for a forward-looking fan projection.
+        base_pnl_12 = base_pnl_monthly.tail(12).reset_index(drop=True)
+
         mc_engine = MonteCarloEngine()
-        fan_df = mc_engine.run_monthly_fan(base_pnl, n_simulations=2000)
+        fan_df = mc_engine.run_monthly_fan(base_pnl_12, n_simulations=2000)
 
         scale = 1e6  # Convert raw £ → £M for frontend
         records = []

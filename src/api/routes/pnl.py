@@ -41,9 +41,22 @@ def get_annual_pnl():
         pnl_df = fin.build_pnl(sales_df, commodity_index_df)
         annual_df = fin.annual_summary(pnl_df)
 
-        total_rev = float(pnl_df["net_revenue"].sum())
-        gross_margin = float(pnl_df["gross_margin"].sum())
-        ebit = float(pnl_df["operating_income"].sum())
+        # Use the most recent calendar year for the annual KPI strip.
+        # annual_df is already aggregated by (year, segment); sum all segments for the latest year.
+        most_recent_year = int(annual_df["year"].max()) if not annual_df.empty else None
+        if most_recent_year and not annual_df.empty:
+            yr = annual_df[annual_df["year"] == most_recent_year]
+            total_rev = float(yr["net_revenue"].sum())
+            gross_margin = float(yr["gross_margin"].sum())
+            ebit = float(yr["operating_income"].sum())
+        else:
+            # Fallback: group pnl_df by the most recent calendar year
+            import pandas as _pd
+            pnl_df["_year"] = _pd.to_datetime(pnl_df["date"]).dt.year
+            yr_df = pnl_df[pnl_df["_year"] == pnl_df["_year"].max()]
+            total_rev = float(yr_df["net_revenue"].sum())
+            gross_margin = float(yr_df["gross_margin"].sum())
+            ebit = float(yr_df["operating_income"].sum())
 
         # Segment breakdown from sales data
         segments = []
