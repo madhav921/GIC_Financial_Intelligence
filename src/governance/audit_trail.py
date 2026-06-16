@@ -28,7 +28,7 @@ class AuditTrail:
         try:
             preferred.mkdir(parents=True, exist_ok=True)
             self.audit_dir = preferred
-        except OSError:
+        except Exception:
             # Read-only filesystem (e.g. Vercel serverless) — use /tmp
             self.audit_dir = Path("/tmp/gic_audit")
             self.audit_dir.mkdir(parents=True, exist_ok=True)

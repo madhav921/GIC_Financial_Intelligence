@@ -20,8 +20,13 @@ class ModelRegistry:
 
     def __init__(self):
         settings = get_settings()
-        self.registry_dir = get_project_root() / settings["paths"]["model_registry"]
-        self.registry_dir.mkdir(parents=True, exist_ok=True)
+        preferred = get_project_root() / settings["paths"]["model_registry"]
+        try:
+            preferred.mkdir(parents=True, exist_ok=True)
+            self.registry_dir = preferred
+        except OSError:
+            self.registry_dir = Path("/tmp/gic_models")
+            self.registry_dir.mkdir(parents=True, exist_ok=True)
 
     def save_model(
         self,
