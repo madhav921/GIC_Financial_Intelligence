@@ -1,0 +1,39 @@
+# Excluded from Vercel bundle — keeps deployment under 500 MB
+
+# Data files (synthetic CSVs can be large; the API regenerates them at runtime)
+data/
+
+# Saved ML model artifacts (retrained on demand)
+models/
+
+# Logs (Vercel captures stdout/stderr directly)
+logs/
+
+# Not needed on the server
+docs/
+tests/
+presentation/
+frontend/
+
+# Local dev / Docker files
+Dockerfile*
+docker-compose.yml
+nginx.conf
+start.sh
+start.ps1
+start.bat
+requirements-local.txt
+
+# Python artifacts
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Auth store (auto-seeded on first request)
+auth/users.json
+
+# Git
+.git/
