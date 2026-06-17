@@ -24,8 +24,14 @@ class AuditTrail:
 
     def __init__(self):
         settings = get_settings()
-        self.audit_dir = get_project_root() / settings["paths"]["audit_trail"]
-        self.audit_dir.mkdir(parents=True, exist_ok=True)
+        preferred = get_project_root() / settings["paths"]["audit_trail"]
+        try:
+            preferred.mkdir(parents=True, exist_ok=True)
+            self.audit_dir = preferred
+        except Exception:
+            # Read-only filesystem (e.g. Vercel serverless) — use /tmp
+            self.audit_dir = Path("/tmp/gic_audit")
+            self.audit_dir.mkdir(parents=True, exist_ok=True)
         self._log_file = self.audit_dir / "audit_log.jsonl"
 
     def _write_entry(self, entry: dict[str, Any]) -> str:
@@ -38,6 +44,22 @@ class AuditTrail:
             f.write(json.dumps(entry, default=str) + "\n")
 
         return entry_id
+
+    def log_event(
+        self,
+        event_type: str,
+        details: dict[str, Any] | None = None,
+        user: str = "system",
+    ) -> str:
+        """Generic append-only event logger used by the layered controllers."""
+        entry = {"event_type": event_type, "user": user}
+        if details:
+            entry.update(details)
+        return self._write_entry(entry)
+
+    def get_recent_events(self, limit: int = 100) -> list[dict]:
+        """Return the most recent audit entries (alias of get_entries)."""
+        return self.get_entries(limit=limit)
 
     def log_forecast(
         self,

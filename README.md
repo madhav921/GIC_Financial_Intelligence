@@ -1,645 +1,347 @@
-# GIC Plan-to-Perform Engine
+# GIC Financial Intelligence Platform
 
-### AI-Powered Commodity Forecast & Financial Intelligence Platform
+**AI-powered Plan-to-Perform engine for automotive OEM commodity risk.**
 
-> **Enterprise-grade financial planning engine** that combines real-time market data, ML-driven commodity forecasting, deterministic financial modeling, and Monte Carlo simulation — built for CFO-level strategic decision making.
+Translates commodity market signals into quantified EBIT impact, VaR-bounded risk, and hedge recommendations — in real time, with full ML explainability and immutable governance.
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Polars](https://img.shields.io/badge/data-Polars%20%2B%20Parquet-orange.svg)](https://pola.rs)
-[![Streamlit](https://img.shields.io/badge/dashboard-Streamlit-red.svg)](https://streamlit.io)
-[![Tests](https://img.shields.io/badge/tests-34%20passed-green.svg)](#testing)
+[![FastAPI](https://img.shields.io/badge/API-FastAPI-009688.svg)](https://fastapi.tiangolo.com)
+[![React](https://img.shields.io/badge/frontend-React-61DAFB.svg)](https://react.dev)
 
 ---
 
-## 📖 Documentation Map — Start Here
+## Run Locally (New Machine Setup)
 
-**🆕 New to GIC?** Follow this path:
+Everything — backend, frontend, auth, data — runs self-contained. No external database or API keys required.
 
-1. **[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)** ← **START HERE** (5 min read)
-   - Installation & first run
-   - Understanding what you'll see
-   - Common tasks (fetch data, run pipeline, start dashboard)
+### Option A — Docker (recommended, 1 command)
 
-2. **[docs/ARCHITECTURE_GUIDE.md](docs/ARCHITECTURE_GUIDE.md)** (15 min read)
-   - How each layer works (data → models → P&L → risk → reports)
-   - Key design decisions & why
-   - Module reference
+Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/).
 
-3. **[docs/OUTPUT_GUIDE.md](docs/OUTPUT_GUIDE.md)** (20 min read)
-   - How to read the Executive Intelligence Report
-   - Dashboard page explanations
-   - Real-world examples
-
-4. **[TECHNICAL_ASSESSMENT.md](TECHNICAL_ASSESSMENT.md)** (if building for production)
-   - What's production-ready vs. planned
-   - Known limitations & edge cases
-   - Roadmap (Q3-Q4 2026)
-
-5. **[docs/FULL_ARCHITECTURE_RUN.md](docs/FULL_ARCHITECTURE_RUN.md)** (actual validated numbers)
-   - 2024 hold-out backtest results (real commodity data)
-   - Layer-by-layer code execution trace with actual metrics
-   - P&L breakdown by segment, hedge savings, Monte Carlo calibration proof
-
----
-
-## What Is GIC?
-
-**The Problem:**
-- Automotive companies face £78M–£180M annual EBIT swings from commodity prices
-- Finance discovers the impact **10 days after** the market moves
-- Hedging decisions made by gut feel, wasting £20–50M/yr
-
-**The Solution:**
-GIC translates commodity market signals into quantified P&L impact **in real-time**, with:
-- ✅ **Forecast accuracy**: 7–15% MAPE on stable commodities (vs. 20%+ naive)
-- ✅ **Real-time P&L**: Commodity shock → EBIT recalculation in <1 second
-- ✅ **Risk quantification**: Probabilistic ranges (80% CI) backed by Monte Carlo
-- ✅ **Optimal hedging**: Portfolio-theory-based ratios, £1.5M/yr savings
-- ✅ **Board-ready reports**: 766-line Executive Intelligence Report, updated daily
-
----
-
-## Key Metrics (Real Data, Validated)
-
-| Metric | Value | Notes |
-|--------|-------|-------|
-| **Forecast Accuracy (best 3)** | 7–10% MAPE | Copper, Polypropylene, Rhodium |
-| **Forecast Accuracy (worst 3)** | 25–31% MAPE | Natural Gas, Palladium, ABS Resin |
-| **Directional Accuracy** | 52–76% | Up/down call correctness by commodity |
-| **EBIT Range (80% CI)** | £1,231M – £1,571M | Probabilistic range from Monte Carlo |
-| **VaR(95%)** | £705M | Worst-case downside |
-| **CI Calibration** | 79% | Backtested accuracy ✓ |
-| **Hedge Savings** | £1.5M/yr | vs. 50% static hedging |
-| **COGS Improvement** | £18.4M/yr | vs. naive forecast |
-| **Pipeline Runtime** | ~5 min | Train all 12 commodities on real data |
-| **Dashboard Recalc** | <1 sec | Commodity shock → EBIT update |
-
----
-
-## Architecture Overview
-
-GIC is organized in **5 layers**, each with a specific role:
-
-```
-┌───────────────────────────────────────────────────────────────┐
-│ LAYER 5: GOVERNANCE & EXPLAINABILITY                         │
-│ ├─ Audit trail (immutable JSONL logs)                         │
-│ ├─ Explainability engine (feature importance + narratives)    │
-│ └─ Market intelligence alerts                                 │
-├───────────────────────────────────────────────────────────────┤
-│ LAYER 4: SIMULATION & RISK (10,000 Monte Carlo runs)          │
-│ ├─ Scenario generation (7 pre-built scenarios)                │
-│ ├─ Hedge optimization (portfolio theory)                      │
-│ └─ Risk metrics (VaR, CVaR, margin distribution)              │
-├───────────────────────────────────────────────────────────────┤
-│ LAYER 3: FINANCIAL DRIVERS                                    │
-│ ├─ Revenue model (volume × price with elasticity)             │
-│ ├─ COGS model (BOM-weighted commodity index)                  │
-│ └─ P&L generation (monthly + annual)                          │
-├───────────────────────────────────────────────────────────────┤
-│ LAYER 2: PREDICTIVE INTELLIGENCE (ML Forecasting)             │
-│ ├─ Commodity forecast (SARIMAX + XGBoost ensemble)            │
-│ ├─ Regime detection (Hurst exponent, adaptive weighting)      │
-│ ├─ Demand forecast (XGBoost per segment)                      │
-│ └─ Price elasticity (log-log regression)                      │
-├───────────────────────────────────────────────────────────────┤
-│ LAYER 1: DATA ARCHITECTURE                                    │
-│ ├─ Real data (Yahoo Finance, FRED, CCXT)                      │
-│ ├─ Synthetic data (JLR-calibrated, O-U processes)             │
-│ ├─ Polars pipeline (fast, lazy evaluation)                    │
-│ └─ Parquet caching (efficient reloads)                         │
-└───────────────────────────────────────────────────────────────┘
+```bash
+git clone https://github.com/madhav921/GIC_Financial_Intelligence
+cd GIC_Financial_Intelligence
+docker compose up --build
 ```
 
-**See [docs/ARCHITECTURE_GUIDE.md](docs/ARCHITECTURE_GUIDE.md) for detailed walkthrough of each layer.**
+| Service | URL |
+|---------|-----|
+| Frontend dashboard | http://localhost:3000 |
+| Backend API | http://localhost:8000 |
+| API docs (Swagger) | http://localhost:8000/docs |
+
+First build takes ~3–5 min. Subsequent runs start in seconds.
+
+### Option B — Native (2 commands)
+
+Requires Python 3.10+ and Node.js 18+.
+
+**Unix / Mac:**
+```bash
+git clone https://github.com/madhav921/GIC_Financial_Intelligence
+cd GIC_Financial_Intelligence
+chmod +x start.sh && ./start.sh
+```
+
+**Windows (PowerShell):**
+```powershell
+git clone https://github.com/madhav921/GIC_Financial_Intelligence
+cd GIC_Financial_Intelligence
+.\start.ps1
+```
+
+### To use real-world live data
+
+```bash
+pip install -e ".[full]"         # yfinance, fredapi, ccxt, polars, scipy
+python scripts/fetch_data.py     # ~2–3 min — fetches Yahoo Finance + FRED + CCXT
+python scripts/train_models.py   # optional — re-trains on real data
+uvicorn src.api.app:app --reload --port 8000
+```
+
+After `fetch_data.py` runs, all backend endpoints serve **real commodity prices, real FX rates, and real macro indicators**. Run it weekly to keep data fresh.
+
+### Demo login
+
+| Role | Username | Password | Access |
+|------|----------|----------|--------|
+| Admin | `admin` | `admin123` | Full — simulations, audit trail, exports |
+| User | `user` | `user123` | Read-only dashboards, sandbox simulation |
+
+---
+
+## What It Does
+
+| Capability | Detail |
+|-----------|--------|
+| **Commodity Forecasting** | SARIMAX + XGBoost ensemble, 12 commodities, 5-fold CV, regime-adaptive blending |
+| **Conformal Prediction** | Provable ≥90% coverage intervals via ACI — no Gaussian assumption |
+| **Change-Point Detection** | CUSUM + BOCPD — fires same month a regime shifts, not 6 months later |
+| **Monte Carlo Simulation** | 10K sims, fat-tail t(df=5), 7 preset scenarios, VaR/CVaR decomposition, monthly fan chart |
+| **Variance Decomposition** | MC-based attribution: commodity % / demand % / FX % of total EBIT variance |
+| **Quantile VaR** | XGBoost 2.x joint quantile objective — asymmetric 5th/95th risk bands |
+| **SHAP Attribution** | TreeSHAP per-commodity feature drivers fed to LLM for plain-English narrative |
+| **Hedge Optimiser** | Portfolio-theory optimal h* replacing naive % rules |
+| **Warranty Analytics** | Weibull failure modes, EV learning curve, accrual adequacy |
+| **Real-Time Feed** | WebSocket `/ws/market` — mean-reverting tick seeded from Yahoo Finance data |
+| **RBAC Auth** | 20-permission matrix, Admin/User, HMAC-SHA256 JWT, audit trail |
+| **Plan-to-Perform Waterfall** | EBIT variance decomposed by driver: volume / price / commodity / FX / overhead |
+| **Open-Source LLM** | Ollama → HuggingFace flan-t5 → template cascade |
+
+---
+
+## Data Sources
+
+Real data by default — synthetic only as a last resort.
+
+| Dataset | Source | Fallback |
+|---------|--------|---------|
+| 9/12 commodity prices | Yahoo Finance (7y monthly) | Ornstein-Uhlenbeck synthetic |
+| 3/12 commodities (Rhodium, Polypropylene, ABS Resin) | Synthetic (no free source) | — |
+| Macro indicators | FRED + Yahoo Finance proxies | Synthetic |
+| FX rates (USD/GBP, EUR/USD, etc.) | Yahoo Finance | Synthetic |
+| Market indices (S&P 500, VIX, Oil) | Yahoo Finance | Static reference |
+| Sales & BOM data | Config-calibrated synthetic | Parquet/SAP/Salesforce ready |
+
+See **[docs/DATA_SOURCES.md](docs/DATA_SOURCES.md)** for the full data flow, per-endpoint source table, and how to activate each source.
+
+---
+
+## Pipeline Results
+
+| Metric | Value |
+|--------|-------|
+| Commodities modelled | 12 / 12 |
+| Full pipeline runtime | ~15 s |
+| Revenue base (JLR-calibrated) | £19.8B |
+| EBIT | £1,401M (7.1% margin) |
+| Monte Carlo VaR(95%) | ~£1.3B downside |
+| Risk decomposition | Commodity ~62% / Demand ~23% / FX ~15% |
+| Audit events per pipeline run | 20 |
+| API routes | 33 REST + 1 WebSocket |
+| Frontend build | <250 kB gzip |
+
+---
+
+## Architecture
+
+```
+orchestrator.py — GICOrchestrator.run_full_pipeline()
+│
+├── Layer 1 · Data          layers/layer1_data/controller.py
+│   DataLayerController → data/raw/ (real) → data/synthetic/ (fallback)
+│   commodity_prices, macro_indicators, sales_data, bom_data, warranty_data
+│
+├── Layer 2 · Intelligence  layers/layer2_intelligence/controller.py
+│   IntelligenceLayerController → SARIMAX+XGBoost ensemble, Hurst regime,
+│                                  CUSUM+BOCPD, conformal intervals, SHAP, quantile VaR
+│
+├── Layer 3 · Financial     layers/layer3_financial/controller.py
+│   FinancialLayerController → BOM-weighted COGS, P&L waterfall, scenario shocks
+│
+├── Layer 4 · Simulation    layers/layer4_simulation/controller.py
+│   SimulationLayerController → Monte Carlo 10K (t5 fat-tail), 7 presets,
+│                                hedge optimiser, monthly EBIT fan, variance decomposition
+│
+└── Layer 5 · Governance    layers/layer5_governance/controller.py
+    GovernanceLayerController → GICLLMEngine, AuditTrail, BiasTracker, ExplainabilityEngine
+```
+
+**Frontend:** React SPA · 11 pages · Recharts · Tailwind · Vercel-deployable  
+**Backend:** FastAPI · 33 REST routes · Pydantic v2 · CORS · OpenAPI docs at `/docs`  
+**Database:** Supabase PostgreSQL (migration scripts in `supabase/`)
 
 ---
 
 ## Project Structure
 
 ```
-gic-plan-to-perform/
-│
-├── config/
-│   └── settings.yaml              # Master configuration (commodities, segments, thresholds)
-│
-├── data/
-│   ├── external/                  # Real-world data (Parquet) — Yahoo Finance, CCXT, FRED
-│   ├── parquet/                   # Cached Parquet files (auto-converted from CSV)
-│   ├── processed/                 # Transformed feature sets
-│   ├── raw/                       # Raw ingested data
-│   └── synthetic/                 # Generated test data (CSV)
-│
-├── models/
-│   └── saved/                     # Trained model artifacts (joblib + metadata JSON)
-│
-├── logs/
-│   └── audit/                     # Governance audit trail (JSONL)
-│
-├── scripts/
-│   ├── fetch_data.py              # Fetch real-world data from all sources
-│   ├── generate_data.py           # Generate synthetic data for testing
-│   ├── train_models.py            # Train all ML models
-│   ├── run_pipeline.py            # End-to-end pipeline orchestration
-│   └── run_commodity_pipeline.py  # 8-stage commodity forecast pipeline
-│
+GIC_Financial_Intelligence/
+├── CLAUDE.md                    # AI assistant setup guide
+├── orchestrator.py              # Root entry point — wires all 5 layers
+├── layers/                      # Layer controllers (one per architectural layer)
+│   ├── layer1_data/
+│   ├── layer2_intelligence/
+│   ├── layer3_financial/
+│   ├── layer4_simulation/
+│   └── layer5_governance/
 ├── src/
-│   ├── config.py                  # Configuration loader (YAML + env vars)
-│   ├── logging_setup.py           # Loguru logging configuration
-│   │
-│   ├── analytics/                 # Financial analytics & market intelligence
-│   │   ├── ffn_analytics.py       # FFN: CAGR, Sharpe, drawdowns, correlations
-│   │   └── market_intelligence.py # Regime detection, alerts, risk scoring
-│   │
-│   ├── api/                       # FastAPI REST service
-│   │   ├── app.py                 # Application factory + CORS + lifespan
-│   │   ├── schemas.py             # Pydantic v2 request/response models
-│   │   └── routes/
-│   │       ├── forecast.py        # /forecast/commodity, /forecast/commodity-index
-│   │       ├── health.py          # /health, /models
-│   │       └── simulation.py      # /simulation/scenario, /simulation/presets
-│   │
-│   ├── dashboard/                 # Streamlit multi-page dashboard
-│   │   ├── app.py                 # Dashboard entry point
-│   │   ├── helpers.py             # Shared utilities (caching, formatting)
-│   │   └── pages/
-│   │       ├── executive_summary.py      # CFO overview — KPIs, alerts, index
-│   │       ├── commodity_intelligence.py # Price charts, correlations, FFN stats
-│   │       ├── financial_pnl.py          # P&L waterfall, segment analysis
-│   │       ├── scenario_simulation.py    # Monte Carlo, what-if builder
-│   │       ├── market_monitor.py         # Live market/FX/crypto tracker
-│   │       └── data_explorer.py          # Dataset catalog & quality report
-│   │
-│   ├── data/                      # Data layer
-│   │   ├── data_loader.py         # Legacy pandas loader (backward compat)
-│   │   ├── feature_engineering.py # Lag features, rolling stats, calendar encoding
-│   │   ├── polars_pipeline.py     # Polars-native Parquet pipeline (primary)
-│   │   ├── synthetic_generator.py # O-U process synthetic data generation
-│   │   └── connectors/
-│   │       ├── yfinance_connector.py  # Yahoo Finance — commodities, indices, FX
-│   │       ├── ccxt_connector.py      # CCXT — Binance crypto exchange data
-│   │       ├── fred_connector.py      # FRED — macroeconomic indicators
-│   │       ├── commodity_api.py       # LME/Quandl (placeholder)
-│   │       ├── erp_connector.py       # SAP S/4HANA (placeholder)
-│   │       └── data_lake.py           # Snowflake/Databricks (placeholder)
-│   │
-│   ├── drivers/                   # Deterministic financial model
-│   │   ├── revenue_drivers.py     # Revenue = Volume × Net Price
-│   │   ├── cost_drivers.py        # COGS = f(BOM, Commodity Index)
-│   │   ├── capital_drivers.py     # Depreciation & CapEx scheduling
-│   │   └── financial_model.py     # Full P&L construction engine
-│   │
-│   ├── governance/                # Model governance & compliance
-│   │   ├── audit_trail.py         # JSONL append-only audit logging
-│   │   ├── bias_tracking.py       # Forecast bias detection & trending
-│   │   └── explainability.py      # Natural-language forecast explanations
-│   │
-│   ├── models/                    # ML model implementations
-│   │   ├── commodity_forecast.py  # 4-method commodity forecasting orchestrator
-│   │   ├── commodity_forecast_xgboost.py  # XGBoost commodity model
-│   │   ├── futures_curve.py       # Futures curve extraction (Method 3)
-│   │   ├── commodity_scenarios.py # Scenario analysis & variance tracking (Method 4)
-│   │   ├── demand_forecast.py     # XGBoost demand by segment
-│   │   ├── price_elasticity.py    # Log-log Ridge regression
-│   │   ├── inventory_risk.py      # Days-of-supply & stockout probability
-│   │   └── model_registry.py      # Model versioning & persistence
-│   │
-│   └── simulation/                # Probabilistic simulation
-│       ├── monte_carlo.py         # MC engine with VaR/CVaR
-│       └── scenario_engine.py     # 7 preset + custom scenarios
-│
-├── tests/
-│   ├── conftest.py                # Shared fixtures (session-scoped)
-│   ├── test_commodity_forecast.py # 6 tests — SARIMAX, XGBoost, CV
-│   ├── test_data_pipeline.py      # 12 tests — Polars, connectors, analytics
-│   ├── test_financial_model.py    # 7 tests — revenue, COGS, P&L
-│   ├── test_governance.py         # 4 tests — audit, bias tracking
-│   └── test_simulation.py         # 5 tests — Monte Carlo, scenarios
-│
-├── .env.example                   # Environment variable template
-├── .gitignore
-├── pyproject.toml                 # Project metadata & dependencies
-└── README.md
+│   ├── api/                     # FastAPI app + 8 route modules
+│   │   ├── app.py               # App factory + CORS + router registration
+│   │   └── routes/              # auth, forecast, pnl, simulation, insights, intelligence, realtime, health
+│   ├── data/                    # DataLoader, DataRouter, connectors, synthetic generator
+│   │   ├── data_loader.py       # _resolve_path(): real first, synthetic fallback
+│   │   ├── data_router.py       # Factory: live | parquet | synthetic
+│   │   └── connectors/          # yfinance_connector, fred_connector, ccxt_connector
+│   ├── models/                  # All ML models
+│   │   ├── commodity_forecast.py
+│   │   ├── conformal.py         # ACI split-conformal
+│   │   ├── explainability_shap.py
+│   │   ├── change_point.py      # CUSUM + BOCPD
+│   │   ├── quantile_forecast.py # XGBoost quantile VaR
+│   │   ├── hedge_optimizer.py
+│   │   └── warranty_model.py
+│   ├── simulation/
+│   │   └── monte_carlo.py       # Student t(5) MC, run_monthly_fan(), decompose_variance()
+│   ├── governance/              # Audit trail, bias tracking, explainability
+│   └── insights/                # InsightEngine, variance bridge, EWS
+├── auth/                        # RBAC — models, permissions, security, store
+├── api/
+│   └── index.py                 # Vercel ASGI entry point
+├── frontend/                    # React SPA
+│   ├── src/
+│   │   ├── pages/               # 11 pages
+│   │   ├── components/          # Charts, Layout, Insights, Realtime, Common
+│   │   ├── auth/                # AuthContext, ProtectedRoute, PermissionGate
+│   │   ├── context/             # RealtimeContext (singleton WebSocket)
+│   │   ├── hooks/               # useRealtime (WS + client simulator fallback)
+│   │   └── api/                 # client.js — typed API methods
+│   └── vercel.json              # SPA rewrite rules
+├── scripts/
+│   ├── fetch_data.py            # Pull Yahoo Finance + FRED + CCXT → data/raw/
+│   ├── generate_data.py         # Generate synthetic data → data/synthetic/
+│   └── train_models.py          # Train SARIMAX+XGBoost → models/saved/
+├── supabase/
+│   ├── migrations/001_init.sql  # Full schema — 5 tables, RLS, 13 indexes
+│   └── seed.sql                 # Demo users + sample data
+├── data/
+│   ├── raw/                     # Real data from fetch_data.py (gitignored)
+│   ├── external/                # Parquet format (gitignored)
+│   └── synthetic/               # Generated CSV fallback
+├── config/
+│   └── settings.yaml            # All config: data sources, commodities, financial params
+├── docs/                        # 15 documentation files
+└── requirements.txt
 ```
 
 ---
 
-## Tech Stack
+## Run Full Pipeline (Python only)
 
-| Category | Technology | Purpose |
-|----------|-----------|---------|
-| **Data Processing** | Polars + Parquet | High-performance DataFrame ops, columnar storage |
-| **ML / Forecasting** | SARIMAX, XGBoost, scikit-learn | Time-series, gradient boosted, futures curve & scenario forecasting |
-| **Real-Time Data** | yfinance | Commodity futures, indices, FX — free, no API key |
-| **Crypto Data** | ccxt (Binance) | Real-time crypto exchange data (BTC, ETH, SOL...) |
-| **Macro Data** | fredapi | Federal Reserve economic indicators (free API key) |
-| **Financial Analytics** | FFN | CAGR, Sharpe, Sortino, drawdown analysis |
-| **API** | FastAPI + Uvicorn | Async REST API with Swagger/OpenAPI docs |
-| **Dashboard** | Streamlit | 6-page interactive executive dashboard |
-| **Visualization** | Plotly | Interactive charts with dark theme |
-| **Config** | PyYAML + python-dotenv | YAML config + environment variables |
-| **Testing** | pytest | 34 tests across 5 test files |
-| **Logging** | Loguru | Structured logging with rotation |
-| **Serialization** | Parquet (zstd) | Compressed columnar storage |
+```python
+from orchestrator import GICOrchestrator
+engine = GICOrchestrator()
+results = engine.run_full_pipeline(n_simulations=10_000)
+# returns: layer1_data, layer2_intelligence, layer3_financial,
+#          layer4_simulation, layer5_governance, pipeline_elapsed_seconds
+```
 
 ---
 
-## Quick Start
+## Deployment
 
-### 1. Clone & Install
+### Frontend → Vercel
+```bash
+cd frontend
+vercel deploy --prod
+# Set REACT_APP_API_URL=https://your-backend.onrender.com
+```
+
+### Backend → Render (recommended) or Vercel Serverless
+```bash
+# Render: connect repo, set start command:
+uvicorn src.api.app:app --host 0.0.0.0 --port $PORT
+
+# Vercel serverless: root vercel.json already configured
+vercel deploy --prod
+```
+
+### Database → Supabase
+```bash
+# In Supabase SQL Editor:
+-- Run supabase/migrations/001_init.sql
+-- Run supabase/seed.sql
+```
+
+See **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** for full step-by-step with env vars.
+
+---
+
+## API Reference
+
+### Core Endpoints
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| `POST` | `/auth/login` | — | Login → JWT token |
+| `GET` | `/auth/demo-profiles` | — | Quick-login profiles |
+| `GET` | `/pnl/annual` | User | Annual KPI strip (revenue, EBIT, gross margin) |
+| `POST` | `/pnl/shock` | User | BOM-weighted commodity shock P&L waterfall |
+| `GET` | `/pnl/regime` | User | Hurst regime for all 12 commodities |
+| `POST` | `/forecast/commodity` | User | SARIMAX+XGBoost single commodity forecast |
+| `GET` | `/forecast/commodity-index` | User | BOM-weighted composite commodity index |
+| `GET` | `/forecast/elasticity` | User | Price elasticity per segment |
+| `POST` | `/simulation/scenario` | Admin | Monte Carlo scenario (10K sims, fat-tail t5) |
+| `GET` | `/simulation/compare-presets` | User | 7-scenario comparison table |
+| `GET` | `/simulation/variance-decomposition` | User | MC variance attribution (commodity/demand/FX %) |
+| `GET` | `/simulation/monthly-fan` | User | 12-month EBIT fan chart (p5/p25/mean/p75/p95) |
+| `GET` | `/insights/feed` | User | Ranked InsightCards with £ quantification |
+| `GET` | `/insights/variance-bridge` | User | Plan-to-Perform EBIT waterfall |
+| `GET` | `/insights/early-warning` | User | Risk score 0–100 + top drivers |
+| `GET` | `/insights/warranty/summary` | User | Warranty failure forecast |
+| `GET` | `/intelligence/change-points/{commodity}` | Admin | CUSUM+BOCPD regime alerts |
+| `GET` | `/intelligence/quantile-var` | Admin | Asymmetric 5th/95th VaR bands |
+| `GET` | `/realtime/snapshot` | — | Current market snapshot |
+| `WS` | `/ws/market` | — | Live market tape (2s ticks) |
+
+Full OpenAPI spec: `http://localhost:8000/docs`
+
+---
+
+## Documentation
+
+| File | Contents |
+|------|---------|
+| [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) | **What data is used where, how it's fetched, and why** |
+| [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) | Installation, first run, common tasks |
+| [docs/ARCHITECTURE_GUIDE.md](docs/ARCHITECTURE_GUIDE.md) | Layer-by-layer design, module reference |
+| [docs/TECHNICAL_DEEP_DIVE.md](docs/TECHNICAL_DEEP_DIVE.md) | Algorithm details, API table, RBAC matrix |
+| [docs/WHY_HOW_IMPACT.md](docs/WHY_HOW_IMPACT.md) | Every feature: What / Why / How / Impact |
+| [docs/BUSINESS_CASE.md](docs/BUSINESS_CASE.md) | ROI model, pricing, target customer profile |
+| [docs/SELLING_DECK.md](docs/SELLING_DECK.md) | Evidence-based pitch, objection handling, demo script |
+| [docs/COMPETITIVE_ANALYSIS.md](docs/COMPETITIVE_ANALYSIS.md) | vs Anaplan / Pigment / o9 / Kinaxis / SAP IBP |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | P0/P1/P2 priorities, feature backlog |
+| [docs/BENCHMARK_REPORT.md](docs/BENCHMARK_REPORT.md) | 10-dimension scorecard vs SOTA and competitors |
+| [docs/RESEARCH_WOWFACTORS.md](docs/RESEARCH_WOWFACTORS.md) | SOTA survey — N-BEATS, TFT, TimesFM, BOCPD |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Vercel + Supabase deployment guide |
+| [docs/OUTPUT_GUIDE.md](docs/OUTPUT_GUIDE.md) | How to read reports and dashboard pages |
+| [CLAUDE.md](CLAUDE.md) | AI assistant setup and architecture guide |
+
+---
+
+## Frontend Pages
+
+| Page | Route | Access | Live Data Source |
+|------|-------|--------|-----------------|
+| Landing | `/` | Public | — |
+| Login | `/login` | Public | — |
+| Executive Summary | `/app/executive` | User | `/insights/early-warning` + realtime WS |
+| Commodity Intelligence | `/app/commodity` | User | `/forecast/commodity` (SARIMAX+XGBoost) |
+| Financial P&L | `/app/pnl` | User | `/pnl/annual` (KPI strip); waterfall static |
+| Scenario Simulation | `/app/simulation` | Admin/User | `/simulation/scenario` + fan + variance decomp |
+| Market Monitor | `/app/market` | User | `/ws/market` WebSocket (commodity & FX live) |
+| Insights Centre | `/app/insights` | User | `/insights/feed` |
+| Variance Bridge | `/app/variance` | User | `/insights/variance-bridge` |
+| Warranty Analytics | `/app/warranty` | User | `/insights/warranty/summary` |
+| Governance | `/app/governance` | Admin/User | `/intelligence/*` endpoints |
+| Data Explorer | `/app/data` | Admin | `/forecast/commodity-index` + admin endpoints |
+
+---
+
+## RBAC Permissions
+
+Admin has all 20 permissions. User has 9 read/sandbox permissions.
+
+Key Admin-only: `RUN_SIMULATION`, `MANAGE_MODELS`, `TRIGGER_RETRAINING`, `TRIGGER_DATA_FETCH`, `VIEW_AUDIT_FULL`, `EXPORT_REPORTS`, `EDIT_SCENARIOS`, `MANAGE_THRESHOLDS`
+
+Key User: `VIEW_DASHBOARD`, `VIEW_EXECUTIVE_SUMMARY`, `VIEW_FORECASTS`, `VIEW_INSIGHTS`, `VIEW_AGGREGATED_DATA`, `VIEW_MARKET_MONITOR`, `VIEW_AUDIT_SUMMARY`, `VIEW_WARRANTY`, `RUN_SANDBOX_SIMULATION`
+
+---
+
+## Branch
+
+Active development branch: **`dev`**
 
 ```bash
-git clone https://github.com/madhav921/GIC_Financial_Intelligence.git
-cd gic-plan-to-perform
-
-python -m venv venv
-# Windows
-.\venv\Scripts\activate
-# macOS/Linux
-source venv/bin/activate
-
-pip install -e ".[dev]"
+git checkout dev
 ```
-
-### 2. Configure Environment
-
-```bash
-cp .env.example .env
-# Edit .env and add your FRED API key (optional but recommended):
-# FRED_API_KEY=your_key_here  (free at https://fred.stlouisfed.org/docs/api/api_key.html)
-```
-
-### 3. Generate Synthetic Data (Instant — No API keys needed)
-
-```bash
-python scripts/generate_data.py
-```
-
-### 4. Fetch Real-World Data (Recommended)
-
-```bash
-python scripts/fetch_data.py
-```
-
-This pulls live data from:
-- **Yahoo Finance**: 9 commodity prices (futures + ETF proxies), 6 market indices, 4 FX pairs, macro proxies (DXY, Oil, VIX, Treasury)
-- **CCXT/Binance**: 6 crypto assets (BTC, ETH, SOL, XRP, BNB, AVAX)
-- **FRED**: 11 macro indicators (requires free API key in `.env`)
-- **Synthetic (O-U process)**: 3 commodities without exchange-traded instruments (Rhodium, Polypropylene, ABS Resin)
-
-Output:
-- `data/raw/commodity_prices.csv` — 12 commodities (9 real + 3 synthetic), pipeline-ready
-- `data/raw/macro_indicators.csv` — 12 macro indicators (real + synthetic), pipeline-ready
-- `data/external/*.parquet` — all market data for dashboard
-
-### 5. Train Models
-
-```bash
-python scripts/train_models.py
-```
-
-### 6. Run Full Pipeline
-
-```bash
-python scripts/run_pipeline.py
-```
-
-### 6b. Run Commodity Forecast Pipeline (12 Materials, 4 Methods)
-
-```bash
-python scripts/run_commodity_pipeline.py
-```
-
-This runs the full 8-stage commodity pipeline:
-1. **Data acquisition** — uses real-world data if available (from `fetch_data.py`), falls back to synthetic
-2. Model training (SARIMAX + XGBoost per commodity with cross-validation)
-3. Forecast generation (all 4 methods: SARIMAX, XGBoost, Futures Curve, Scenario)
-4. Multi-method comparison table
-5. BOM-weighted commodity index
-6. Variance tracking & monthly update (with >5% alert / >10% escalation)
-7. Macro scenario stress tests (Bear / Base / Bull)
-8. Governance & audit trail
-
-### 7. Launch Dashboard
-
-```bash
-streamlit run src/dashboard/app.py
-# Opens at http://localhost:8501
-```
-
-### 8. Launch API Server
-
-```bash
-uvicorn src.api.app:app --host 127.0.0.1 --port 8000
-# Swagger docs at http://127.0.0.1:8000/docs
-```
-
----
-
-## Dashboard Pages
-
-| Page | Description |
-|------|-------------|
-| **Executive Summary** | CFO-level KPIs: Revenue, Margin, COGS, Net Income. Market risk assessment, active alerts, commodity index trend |
-| **Commodity Intelligence** | Individual price charts with MA/Bollinger bands. Correlation heatmap. Performance analytics (CAGR, Sharpe, drawdown). BOM-weighted commodity index |
-| **Financial P&L** | P&L waterfall chart. Segment revenue/volume breakdown. Monthly trend analysis. Commodity cost sensitivity |
-| **Scenario Simulation** | Interactive Monte Carlo (1K–50K sims). Custom what-if builder with 6 adjustable drivers. Preset scenario comparison |
-| **Market Monitor** | Live market indices, FX rates, crypto prices. FRED macro indicators. Real-time data from 3 sources |
-| **Data Explorer** | Dataset catalog (external, parquet, synthetic). Data preview with statistics. Quality report (nulls, date coverage) |
-
----
-
-## API Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/health` | System health check |
-| `GET` | `/models` | List loaded models |
-| `POST` | `/forecast/commodity` | Commodity price forecast (SARIMAX) |
-| `POST` | `/forecast/commodity-index` | BOM-weighted index forecast |
-| `POST` | `/forecast/elasticity` | Price elasticity estimation |
-| `POST` | `/simulation/scenario` | Run Monte Carlo for a scenario |
-| `GET` | `/simulation/presets` | List preset scenarios |
-| `POST` | `/simulation/compare-presets` | Compare all preset scenarios |
-
-### Example: Commodity Forecast
-
-```bash
-curl -X POST http://localhost:8000/forecast/commodity \
-  -H "Content-Type: application/json" \
-  -d '{"commodity": "Lithium", "horizon_months": 12}'
-```
-
-### Example: What-If Scenario
-
-```bash
-curl -X POST http://localhost:8000/simulation/scenario \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Lithium Crisis",
-    "demand_shock": -0.05,
-    "commodity_shock": 0.40,
-    "n_simulations": 10000
-  }'
-```
-
----
-
-## Data Sources
-
-### Commodity Prices — Real-World vs Synthetic
-
-| Commodity | Source | Ticker | Type | Unit Conversion | Notes |
-|-----------|--------|--------|------|-----------------|-------|
-| **Steel** | Yahoo Finance | `SLX` | ETF proxy | ×7.5 → USD/tonne | VanEck Steel ETF; tracks steel equities, not LME directly |
-| **Aluminum** | Yahoo Finance | `AA` | Equity proxy | ×60 → USD/tonne | Alcoa Corp; largest US aluminum producer |
-| **Copper** | Yahoo Finance | `HG=F` | Direct futures | ×2204.62 (lb→tonne) | CME COMEX Copper; direct commodity futures |
-| **Platinum** | Yahoo Finance | `PL=F` | Direct futures | ×1.0 (USD/oz) | NYMEX Platinum; direct commodity futures |
-| **Palladium** | Yahoo Finance | `PA=F` | Direct futures | ×1.0 (USD/oz) | NYMEX Palladium; direct commodity futures |
-| **Lithium** | Yahoo Finance | `LIT` | ETF proxy | ×0.25 → USD/kg | Global X Lithium & Battery Tech ETF |
-| **Natural Gas** | Yahoo Finance | `NG=F` | Direct futures | ×10 → p/therm equiv | NYMEX Henry Hub; converted to therm-equivalent |
-| **Nickel** | Yahoo Finance | `VALE` | Equity proxy | ×750 → USD/tonne | Vale SA; major global nickel/iron ore producer |
-| **Cobalt** | Yahoo Finance | `GLNCY` | Equity proxy | ×1600 → USD/tonne | Glencore; world's largest cobalt producer |
-| **Rhodium** | **Synthetic** | — | O-U process | — | No exchange-traded instrument. LME/LPPM quotes only via paid terminal. Correlate with PGM basket. |
-| **Polypropylene** | **Synthetic** | — | O-U process | — | No exchange-traded instrument. ICIS/Platts subscription required. Correlated to oil/naphtha. |
-| **ABS Resin** | **Synthetic** | — | O-U process | — | No exchange-traded instrument. ICIS subscription required. Correlated to oil/naphtha. |
-
-**How to replace synthetic data with real data:**
-- **Rhodium**: Subscribe to Johnson Matthey PGM Price Bulletin or LPPM, add a custom connector that reads from their API or CSV export.
-- **Polypropylene / ABS Resin**: Subscribe to ICIS, Platts, or ChemOrbis petrochemical price feeds. Add a connector that ingests their price data into `data/raw/`.
-- **Nickel / Cobalt (better proxy)**: Replace equity proxies with LME API (paid) for direct LME Nickel 3M and LME Cobalt prices.
-
-### Macro Indicators
-
-| Indicator | Source | Series/Ticker | Real? |
-|-----------|--------|---------------|-------|
-| Oil Price (USD) | Yahoo Finance | `CL=F` | Yes |
-| DXY Index | Yahoo Finance | `DX-Y.NYB` | Yes |
-| USD/GBP | Yahoo Finance | `GBPUSD=X` | Yes |
-| USD/EUR | Yahoo Finance | `EURUSD=X` | Yes |
-| Interest Rate (%) | FRED | `FEDFUNDS` | Yes (with API key) |
-| CPI Index | FRED | `CPIAUCSL` | Yes (with API key) |
-| PPI (US) | FRED | `PPIACO` | Yes (with API key) |
-| Manufacturing PMI | FRED (proxy) | `INDPRO` | Yes (Industrial Production as proxy) |
-| GDP Growth (%) | Synthetic | — | No (FRED GDP is quarterly, model expects monthly) |
-| China PPI YoY | Synthetic | — | No (not freely available) |
-| Baltic Dry Index | Synthetic | — | No (not freely available via yfinance/FRED) |
-| EV Sales Growth | Synthetic | — | No (IEA/Bloomberg NEF data requires subscription) |
-
-**How to replace remaining synthetic macro data:**
-- **GDP Growth**: Use FRED `GDP` series (quarterly) with interpolation, or use ISM PMI as a proxy.
-- **China PPI**: National Bureau of Statistics of China (NBS) or CEIC database.
-- **Baltic Dry Index**: Available at freightos.com or via paid market data terminals.
-- **EV Sales Growth**: IEA Global EV Outlook, Bloomberg NEF, or CleanTechnica open data.
-
-### Market & Other Data
-
-| Source | Data | API Key? |
-|--------|------|----------|
-| **Yahoo Finance** | S&P 500, VIX, Dow Jones, Oil, Gold, 10Y Treasury | No |
-| **Yahoo Finance** | USD/GBP, USD/EUR, USD/JPY, USD/CNY | No |
-| **CCXT / Binance** | BTC, ETH, SOL, XRP, BNB, AVAX — OHLCV candles | No |
-| **FRED** | 11 macro series (rates, inflation, GDP, sentiment) | Free key |
-
-### Placeholder (Enterprise)
-
-| Source | Status |
-|--------|--------|
-| SAP S/4HANA | Connector stub ready |
-| Snowflake / Databricks | Connector stub ready |
-| Anaplan | Connector stub ready |
-| Bloomberg Terminal | Connector stub ready |
-
----
-
-## Financial Model
-
-### P&L Construction
-
-```
-Revenue     = Σ(Volume_segment × Net_Price × (1 - Incentive%))
-COGS        = Revenue × Base_COGS_% × (1 + Commodity_Impact × Material_Fraction)
-Gross Margin = Revenue - COGS
-Warranty     = Revenue × 2.5%
-Depreciation = CapEx / Useful_Life / 12
-Op. Income   = Gross Margin - Warranty - Depreciation
-Tax          = max(0, Op. Income × 21%)
-Net Income   = Op. Income - Tax
-```
-
-### Commodity Index
-
-BOM-weighted composite index normalized to base 100:
-
-```
-Index(t) = Σ(w_i × Price_i(t) / Price_i(0) × 100) / Σ(w_i)
-```
-
-Where weights reflect Bill of Materials cost allocation:
-- Steel: 22% | Lithium: 18% | Aluminum: 12% | Cobalt: 7%
-- Copper: 6% | Nickel: 5% | Platinum: 4% | Natural Gas: 4%
-- Palladium: 3% | Polypropylene: 3% | Rhodium: 2% | ABS Resin: 2%
-
-### Monte Carlo Simulation
-
-- **10,000 simulations** per scenario (configurable up to 50K)
-- **Demand shocks**: Normal distribution (σ = 10%)
-- **Commodity shocks**: Student's t-distribution (df=5, σ = 20%) — captures fat tails
-- **Risk metrics**: VaR and CVaR at 95% confidence
-- **7 preset scenarios**: Base, Bull, Bear, Commodity Crisis, Lithium+15%, EU Demand-8%, Stagflation
-
----
-
-## Commodities Tracked (12 JLR-Relevant Materials)
-
-| Commodity | Category | BOM Weight | Preferred Method | Primary Driver | Risk Flag |
-|-----------|----------|------------|-----------------|----------------|----------|
-| Steel | Raw Material | 22% | ARIMA | Iron ore prices | Tariff exposure |
-| Lithium | Battery Material | 18% | XGBoost | EV demand growth | Supply concentration |
-| Aluminum | Raw Material | 12% | ARIMA | Energy cost | Carbon border tax |
-| Cobalt | Battery Material | 7% | XGBoost | DRC supply disruptions | Geopolitical risk |
-| Copper | Raw Material | 6% | ARIMA | Construction demand | Green transition demand |
-| Nickel | Battery Material | 5% | XGBoost | Indonesia export policy | EV demand spike |
-| Platinum | Precious Metal | 4% | XGBoost | Autocatalyst demand | Hydrogen economy |
-| Natural Gas | Energy | 4% | ARIMA | TTF/Henry Hub spread | Geopolitical supply risk |
-| Palladium | Precious Metal | 3% | XGBoost | Autocatalyst demand | Russian supply risk |
-| Polypropylene | Polymer | 3% | ARIMA | Naphtha cost | Petrochemical cycle |
-| Rhodium | Precious Metal | 2% | XGBoost | Emissions regulation | Extreme illiquidity |
-| ABS Resin | Polymer | 2% | ARIMA | Styrene/butadiene prices | Petrochemical cycle |
-
----
-
-## Model Details
-
-### Commodity Forecast Model (4 Methods)
-
-**Method 1 — SARIMAX (Baseline)**
-- Order: (1,1,1)(1,1,1,12) — captures trend, seasonality, stationarity
-- Best for: Stable commodities with seasonal patterns (Steel, Aluminum, Copper, Natural Gas, Polypropylene, ABS Resin)
-
-**Method 2 — XGBoost (Macro-Driven)**
-- 300 trees, depth 6, with engineered features:
-  - Lag features: 1, 3, 6, 12 months
-  - Rolling statistics: 3, 6, 12 month MA and std
-  - Percentage changes: 1, 3, 6 month momentum
-  - Macro indicators: Manufacturing PMI, DXY, China PPI, Baltic Dry, US PPI, EV sales growth (with lags)
-  - Calendar: cyclical month encoding
-- Best for: Supply-shock-sensitive commodities (Platinum, Palladium, Rhodium, Lithium, Cobalt, Nickel)
-
-**Method 3 — Futures Curve Extraction (Market-Implied)**
-- Extracts forward prices from exchange-traded futures term structure
-- Supports 7 liquid commodities: Steel, Aluminum, Copper, Platinum, Palladium, Nickel, Natural Gas
-- Generates synthetic curves (contango for industrial metals, backwardation for PGMs, seasonal for energy)
-- Up to 18-month forward price extraction
-
-**Method 4 — Scenario Analysis (Expert + Model Hybrid)**
-- Bear / Base / Bull price targets for each commodity (12-month horizon)
-- Macro-driven probability weight shifting based on:
-  - PMI (below 50 → overweight Bear, above 55 → overweight Bull)
-  - DXY (strong dollar → hawkish on commodities)
-  - Supply disruption risk (increases Bull probability)
-- Weighted expected price = P(Bear) × Bear + P(Base) × Base + P(Bull) × Bull
-
-### Variance Tracking & Monthly Update Process
-- Monthly variance: `|Actual - Prior Forecast| / Prior Forecast`
-- **> 5% variance**: Alert triggered
-- **> 10% variance**: L6 Governance review escalation
-- JSONL-based variance history with full audit trail
-- 7-step monthly update workflow: Receive prices → Validate → Reforecast → Revise scenarios → Track variance → Escalate if needed → Publish
-
-### Preset Scenarios
-| Scenario | Demand | Commodity | FX |
-|----------|--------|-----------|----|
-| Base Case | 0% | 0% | 0% |
-| Lithium +15% | 0% | +15% | 0% |
-| EU Demand -8% | -8% | 0% | 0% |
-| Commodity Crisis | -5% | +40% | +10% |
-| Bull Market | +10% | -5% | -2% |
-| Rate Cuts | +5% | -2% | 0% |
-| Stagflation | -12% | +25% | +8% |
-
----
-
-## Testing
-
-```bash
-# Run all tests
-python -m pytest tests/ -v
-
-# Run with coverage
-python -m pytest tests/ --cov=src --cov-report=term-missing
-
-# Run specific test module
-python -m pytest tests/test_commodity_forecast.py -v
-```
-
-34 tests across 5 test files covering:
-- Commodity forecasting (SARIMAX, XGBoost, cross-validation)
-- Financial model (revenue, COGS, P&L, scenarios)
-- Monte Carlo simulation (distributions, VaR, scenario comparison)
-- Governance (audit trail, bias tracking)
-- Data pipeline (Polars, connectors, FFN analytics, market intelligence)
-
----
-
-## Vehicle Segments (JLR Context)
-
-| Segment | Models | Avg Price | Annual Volume |
-|---------|--------|-----------|---------------|
-| Luxury SUV | Range Rover, RR Sport | $105,000 | 80,000 |
-| Premium SUV | Defender, Discovery | $72,000 | 120,000 |
-| Performance | F-PACE, E-PACE | $58,000 | 65,000 |
-| EV | I-PACE, Future EV | $82,000 | 45,000 |
-
----
-
-## Configuration
-
-All configuration is centralized in [`config/settings.yaml`](config/settings.yaml):
-
-- **Commodities**: Names, units, categories, BOM weights, tickers
-- **Vehicle Segments**: Models, pricing, volumes
-- **Forecast**: Horizon, confidence levels, lag features
-- **Financial**: COGS %, tax rate, warranty reserve, depreciation
-- **Simulation**: Number of sims, seed, 7 preset scenarios
-- **Governance**: Bias thresholds, audit retention, max override
-- **Data Sources**: yfinance/ccxt/FRED enable flags, default periods
-- **Dashboard**: Port, theme, refresh interval, page list
-
----
-
-## Architecture Improvements Over Base Design
-
-1. **Real-world data integration**: yfinance, CCXT, FRED replace synthetic-only pipeline
-2. **Polars + Parquet**: 10x faster data processing vs pandas/CSV with lazy evaluation
-3. **Fat-tailed distributions**: Monte Carlo uses Student's t (df=5) for commodity shocks
-4. **Ornstein-Uhlenbeck synthetic data**: Mean-reverting process for realistic fallback data
-5. **Cross-validation**: Expanding-window time-series CV prevents look-ahead bias
-6. **BOM-weighted Commodity Index**: Material cost weights from actual bill-of-materials
-7. **FFN performance analytics**: Industry-standard financial metrics (CAGR, Sharpe, Sortino)
-8. **Market intelligence engine**: Macro regime detection, alert generation, risk scoring
-9. **6-page Streamlit dashboard**: CFO-grade interactive visualization
-10. **Multi-source data pipeline**: Parquet → external → raw → synthetic fallback chain
-11. **Append-only audit trail**: JSONL format for immutable governance logging
-12. **Model registry with versioning**: Save/load/compare model versions over time
-
----
-
-## Roadmap
-
-- [ ] Real-time streaming with WebSocket price feeds
-- [ ] Prophet / LSTM models for improved long-horizon forecasting
-- [ ] Bloomberg Terminal integration (enterprise connector)
-- [ ] Anaplan bi-directional sync for financial planning
-- [ ] Docker + Kubernetes deployment
-- [ ] CI/CD pipeline (GitHub Actions)
-- [ ] Role-based access control (RBAC)
-- [ ] Automated retraining scheduler
-- [ ] PDF report generation for board presentations
-- [ ] Multi-currency P&L with hedging strategy optimizer
-
----
-
-## License
-
-Internal use — proprietary.

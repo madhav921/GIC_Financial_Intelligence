@@ -1,0 +1,23 @@
+-- =============================================================================
+-- GIC Financial Intelligence — Supabase Combined Schema Reference
+-- File:    supabase/schema.sql
+--
+-- This file is a reference entry-point that combines the migration and seed
+-- into a logical order.  Do NOT run this file directly in production —
+-- use the Supabase CLI migration runner or the Supabase dashboard instead.
+--
+-- Execution order for a fresh database:
+--   1. supabase/migrations/001_init.sql   — DDL: tables, RLS, indexes
+--   2. supabase/seed.sql                  — DML: demo users, audit events, forecasts
+--
+-- Quick start with Supabase CLI:
+--   supabase db reset               # applies all migrations + seed automatically
+--
+-- Manual execution order (psql):
+--   \i supabase/migrations/001_init.sql
+--   \i supabase/seed.sql
+-- =============================================================================
+
+-- Uncomment and run manually if needed:
+-- \i supabase/migrations/001_init.sql
+-- \i supabase/seed.sql

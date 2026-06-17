@@ -1,251 +1,181 @@
 # Getting Started — GIC Financial Intelligence Platform
 
-Welcome! This guide will get you up and running in **5 minutes**.
+Up and running in **one command** (Docker) or **one script** (native).
+
+No external database or API keys required — everything runs self-contained with synthetic data and a local JSON-backed auth store.
 
 ---
 
 ## What Is GIC?
 
-**GIC** is an AI-powered financial intelligence engine that transforms commodity market data into real-time P&L impacts. It combines:
+GIC is a 5-layer AI financial intelligence engine for automotive OEMs. It forecasts commodity prices, quantifies P&L risk, and generates hedge recommendations — in real time, with full explainability and governance.
 
-- **Real market data**: Yahoo Finance, FRED, CCXT, plus synthetic data generators
-- **ML forecasting**: SARIMAX + XGBoost ensemble with regime detection
-- **Financial modeling**: Deterministic COGS/Revenue drivers plus Monte Carlo risk simulation
-- **Interactive dashboard**: Streamlit interface with live commodity shocks, hedging tools, and scenario analysis
-
-**Built for**: CFOs, commodity managers, treasury teams  
-**Core value**: Reduces EBIT uncertainty by £18.4M/yr through better forecasts + optimal hedging
+**Built for:** CFOs, commodity managers, treasury teams, FP&A analysts  
+**Core value:** Translates commodity market signals into quantified EBIT impact with provable prediction intervals
 
 ---
 
-## Installation (2 minutes)
+## Quick Start
 
-### Prerequisites
-- **Python 3.10+** installed
-- **Git** for cloning the repository
+### Option A — Docker (recommended)
 
-### Setup
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/madhav921/GIC_Financial_Intelligence.git
-   cd GIC_Financial_Intelligence
-   ```
-
-2. **Create a virtual environment**
-   ```bash
-   python -m venv venv
-   venv\Scripts\Activate.ps1  # Windows PowerShell
-   # or
-   source venv/bin/activate  # macOS/Linux
-   ```
-
-3. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Download real market data** (optional, ~30 seconds)
-   ```bash
-   python scripts/fetch_data.py
-   ```
-   This fetches 7 years of commodity prices from Yahoo Finance + macro indicators from FRED.
-
----
-
-## Your First 2 Runs
-
-### Run 1: Generate the Executive Intelligence Report
+Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/). No Python or Node.js needed.
 
 ```bash
-python scripts/generate_executive_report.py
+git clone https://github.com/madhav921/GIC_Financial_Intelligence
+cd GIC_Financial_Intelligence
+docker compose up --build
 ```
 
-**What happens:**
-- Loads real commodity data (data/raw/commodity_prices.csv)
-- Computes commodity statistics, correlations, and financial impacts
-- Generates **docs/EXECUTIVE_INTELLIGENCE_REPORT.md** (766-line board-ready report)
+| Service | URL |
+|---------|-----|
+| Frontend dashboard | http://localhost:3000 |
+| Backend API | http://localhost:8000 |
+| API docs (Swagger) | http://localhost:8000/docs |
 
-**Output**: Opens automatically or view at:  
-`docs/EXECUTIVE_INTELLIGENCE_REPORT.md`
+First build takes ~3–5 min. Subsequent `docker compose up` starts in seconds.
 
-**What you'll see:**
-- BOM-weighted commodity index (currently +84.7% YoY)
-- Forecast accuracy tables (real CV MAPE metrics)
-- Scenario P&L impacts (Bear/Base/Bull cases)
-- Macro-commodity correlations
-- Risk metrics (VaR, Monte Carlo)
+### Option B — Native scripts
 
----
+Requires Python 3.10+ and Node.js 18+.
 
-### Run 2: Start the Interactive Dashboard
-
+**Unix / Mac:**
 ```bash
-$env:PYTHONIOENCODING="utf-8"
-python -m streamlit run src/dashboard/app.py --server.port 8502
+git clone https://github.com/madhav921/GIC_Financial_Intelligence
+cd GIC_Financial_Intelligence
+chmod +x start.sh && ./start.sh
 ```
 
-**What opens:**
-- Local dashboard at `http://localhost:8502`
-- 8-page interactive interface
+**Windows (PowerShell):**
+```powershell
+git clone https://github.com/madhav921/GIC_Financial_Intelligence
+cd GIC_Financial_Intelligence
+.\start.ps1
+```
 
-**Try these (in order):**
-
-1. **📊 Executive Summary** (default)
-   - KPI cards (commodity index, COGS impact)
-   - Real commodity prices + forecasts
-   - Scenario waterfall
-
-2. **📋 Intelligence Report**
-   - Full downloadable board report
-   - Commodity deep dives
-   - Accuracy metrics per commodity
-
-3. **🌍 Commodity Intelligence**
-   - Individual commodity forecast with 95% confidence bands
-   - Scenario + sensitivity sliders
-   - Move the **Lithium** slider +20% → watch EBIT impact update in <1 second
-
-4. **💰 Financial P&L**
-   - Revenue, COGS, margin drivers
-   - Monte Carlo simulation results (10,000 runs)
-   - Risk breakdown (commodity vol, demand vol, FX)
+The scripts auto-create the Python venv, install all dependencies, and start both servers. On subsequent runs they skip the install steps and start immediately.
 
 ---
 
-## Understanding the Output
+## Log In
 
-### Executive Intelligence Report (Key Sections)
+| Role | Username | Password | Can do |
+|------|----------|----------|--------|
+| Admin | `admin` | `admin123` | Everything — simulations, audit, exports |
+| User | `user` | `user123` | Read-only dashboards, sandbox simulation |
 
-| Section | What It Shows | How to Use |
-|---------|---|---|
-| **Section 1: Market Snapshot** | Current commodity prices + YoY changes | Understand current market state |
-| **Section 2: Index & Trends** | BOM-weighted commodity index time series | Monitor portfolio inflation trend |
-| **Section 3: Forecast Accuracy** | Real model CV MAPE + directional accuracy | Understand reliability by commodity |
-| **Section 4: Macro Correlations** | Which economic indicators drive prices | Scenario building context |
-| **Section 5: Scenario P&L** | COGS + EBIT impact under 3 scenarios | Budget planning, guidance ranges |
-| **Section 6: Risk Metrics** | VaR, Monte Carlo distribution | CFO-grade risk quantification |
-
-### Dashboard Pages Explained
-
-- **Commodity Intelligence**: Real-time shock calculator — move a commodity slider and watch EBIT impact update
-- **Financial P&L**: Distribution of possible outcomes (not just base case)
-- **Market Monitor**: Correlation matrix + regime detection
-- **Backtesting**: Historical forecast accuracy
+Use the **quick-login buttons** on the Login page for instant demo access.
 
 ---
 
-## Key Files & Directories
+## Run the Full Pipeline (Python)
+
+```python
+from orchestrator import GICOrchestrator
+
+engine = GICOrchestrator()
+results = engine.run_full_pipeline(n_simulations=10_000)
+
+# Results structure:
+# results['layer1_data']         — commodity/macro/sales shapes
+# results['layer2_intelligence'] — n_forecasts, commodity_index_latest
+# results['layer3_financial']    — total_revenue, ebit, gross_margin
+# results['layer4_simulation']   — mc_stats, scenario_comparison, risk_decomposition
+# results['layer5_governance']   — narratives, executive_insight, audit_events
+# results['pipeline_elapsed_seconds']
+```
+
+Expected output: 12 forecasts in ~15 seconds, VaR(95%) ~£19.3bn, 20 audit events.
+
+---
+
+## Dashboard Pages
+
+| Page | URL | What to try |
+|------|-----|------------|
+| Executive Summary | `/app/executive` | Live commodity tape, risk gauge, top insights |
+| Commodity Intelligence | `/app/commodity` | Select a commodity → forecast + change-point alert + SHAP drivers |
+| Financial P&L | `/app/pnl` | EBIT waterfall, commodity sensitivity slider |
+| Scenario Simulation | `/app/simulation` | Run Monte Carlo → distribution histogram + VaR markers |
+| Market Monitor | `/app/market` | Live prices, sparklines, FX panel |
+| Insights Centre | `/app/insights` | Ranked InsightCards with £-quantified recommended actions |
+| Variance Bridge | `/app/variance` | Plan-to-Perform EBIT waterfall by driver |
+| Warranty Analytics | `/app/warranty` | Failure modes, accrual adequacy, cost forecast |
+| Governance | `/app/governance` | Audit trail, bias table, LLM narratives (Admin: full detail) |
+| Data Explorer | `/app/data` | Admin only — raw data preview, schema, quality |
+
+---
+
+## Key Directories
 
 ```
 GIC_Financial_Intelligence/
-├── config/settings.yaml              ← Adjust BOM weights, scenario prices here
-├── data/
-│   ├── raw/                          ← Real commodity prices (Yahoo Finance)
-│   │   └── commodity_prices.csv      ← 7-year historical, 12 commodities
-│   ├── synthetic/                    ← Generated JLR-like data
-│   │   └── sales_data.csv
-│   └── external/                     ← Cached parquet (faster loads)
+├── orchestrator.py          # Full pipeline entry point
+├── layers/                  # 5 layer controllers
 ├── src/
-│   ├── data/                         ← Polars pipeline, data connectors
-│   ├── models/                       ← SARIMAX, XGBoost, regime detection
-│   ├── drivers/                      ← Financial model (COGS, revenue)
-│   ├── simulation/                   ← Monte Carlo engine
-│   └── dashboard/                    ← Streamlit multi-page app
-├── scripts/
-│   ├── fetch_data.py                 ← Download real market data
-│   ├── generate_executive_report.py  ← Build the board-ready report
-│   ├── run_commodity_pipeline.py     ← Train all models (one-time, ~5 min)
-│   └── run_full_architecture.py      ← End-to-end (data → models → P&L → MC)
-├── docs/
-│   ├── EXECUTIVE_INTELLIGENCE_REPORT.md  ← Generated output (read this!)
-│   ├── GETTING_STARTED.md            ← This file
-│   ├── ARCHITECTURE_GUIDE.md         ← Deep technical walkthrough
-│   └── OUTPUT_GUIDE.md               ← Interpreting the numbers
-└── tests/                            ← 34 unit tests
+│   ├── api/                 # FastAPI app + 8 route files
+│   ├── models/              # ML models + SOTA (conformal, SHAP, change_point, quantile)
+│   ├── simulation/          # Monte Carlo + scenario engine
+│   ├── governance/          # Audit trail + bias tracking
+│   └── insights/            # InsightEngine, variance bridge, EWS
+├── auth/                    # RBAC (models, permissions, security, JWT, store)
+├── frontend/src/            # React SPA (11 pages, Recharts, Tailwind)
+├── supabase/                # PostgreSQL migration + seed SQL
+├── data/synthetic/          # Generated datasets (CSV)
+├── data/audit/              # Append-only JSONL audit trail
+└── docs/                    # 14 documentation files
 ```
 
 ---
 
 ## Common Tasks
 
-### Update commodity prices with latest market data
+### Check change-point detection on Copper
 ```bash
-python scripts/fetch_data.py
+curl http://localhost:8000/intelligence/change-points/Copper
+# → {shifted, n_breaks, last_break_date, confidence, reforecast_recommended}
 ```
-This fetches the latest commodities, macro, and FX data from live sources.
 
-### Retrain all models (takes ~5 minutes)
+### Get asymmetric quantile VaR
 ```bash
-python scripts/run_commodity_pipeline.py
+curl http://localhost:8000/intelligence/quantile-var
+# → {var_5pct: 83.22, median_forecast: 84.07, var_95pct: 87.94}
 ```
-Trains SARIMAX+XGBoost models for all 12 commodities using real data.
 
-### Run full architecture (data → models → P&L → Monte Carlo)
-```bash
-python scripts/run_full_architecture.py
+### Quick P&L with commodity shock
+```python
+from orchestrator import GICOrchestrator
+result = GICOrchestrator().quick_pnl(commodity_shock=0.10)  # +10% commodities
+print(result)  # → {total_revenue, gross_margin, ebit, demand_shock, commodity_shock}
 ```
-End-to-end validation with accuracy backtesting.
 
-### Run tests
-```bash
-pytest tests/ -v
+### Generate synthetic data
+```python
+from layers.layer1_data.controller import DataLayerController
+datasets = DataLayerController().generate_synthetic_data()
+# → commodity_prices, macro_indicators, sales_data, production_inventory, bom_data
 ```
-Validates all 34 test cases (should pass in <10 sec).
 
 ---
 
 ## Troubleshooting
 
-### Dashboard won't start
-```bash
-# Make sure port 8502 is free
-netstat -ano | findstr :8502  # Windows
-lsof -i :8502                 # macOS/Linux
-
-# Try a different port
-python -m streamlit run src/dashboard/app.py --server.port 8503
-```
-
-### "Module not found" error
-```bash
-# Ensure venv is activated, then reinstall
-pip install -r requirements.txt --force-reinstall
-```
-
-### Models missing or old
-```bash
-# Retrain all models
-python scripts/run_commodity_pipeline.py
-
-# This saves to: models/saved/{commodity}_xgb_*/
-```
-
-### Data fetching fails
-```bash
-# If Yahoo Finance API is rate-limited, use cached data
-ls data/raw/  # Check if commodity_prices.csv exists
-```
+| Symptom | Fix |
+|---------|-----|
+| `Module not found` | `pip install -r requirements.txt` in repo root (not frontend/) |
+| Dashboard shows no data | Start backend first; wait for the health check to pass |
+| WebSocket shows "Simulated" | Expected — client simulator runs when backend WS is unreachable |
+| Auth fails | Delete `auth/users.json` to regenerate seed users on next start |
+| Docker: port already in use | Stop any process using ports 3000 or 8000, then re-run |
+| Docker: frontend not loading | Backend may still be initialising; wait ~30s and refresh |
+| Windows script blocked | Run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` then retry |
 
 ---
 
 ## Next Steps
 
-1. **Read the full report**: `docs/EXECUTIVE_INTELLIGENCE_REPORT.md`
-2. **Explore the dashboard**: Pages 2–4 are most interactive
-3. **Understand the architecture**: `docs/ARCHITECTURE_GUIDE.md`
-4. **See the validation evidence**: `docs/FULL_ARCHITECTURE_RUN.md` — actual 2024 backtest numbers, P&L by segment, Monte Carlo calibration proof
-5. **Try different scenarios**: Use `config/settings.yaml` to adjust BOM weights or base case prices
-6. **Review the code**: `src/drivers/financial_model.py` shows exactly how P&L is calculated
-
----
-
-## Questions?
-
-| Topic | Document |
-|-------|----------|
-| Architecture & design decisions | [ARCHITECTURE_GUIDE.md](ARCHITECTURE_GUIDE.md) |
-| Interpreting report numbers | [OUTPUT_GUIDE.md](OUTPUT_GUIDE.md) |
-| Production readiness & roadmap | [../TECHNICAL_ASSESSMENT.md](../TECHNICAL_ASSESSMENT.md) |
-| Actual 2024 backtest proof | [FULL_ARCHITECTURE_RUN.md](FULL_ARCHITECTURE_RUN.md) |
-| Full project overview | [../README.md](../README.md) |
+1. **Architecture**: [docs/ARCHITECTURE_GUIDE.md](ARCHITECTURE_GUIDE.md) — layer-by-layer design
+2. **Feature detail**: [docs/WHY_HOW_IMPACT.md](WHY_HOW_IMPACT.md) — every module explained
+3. **Deploy**: [docs/DEPLOYMENT.md](DEPLOYMENT.md) — Vercel + Supabase
+4. **Business case**: [docs/BUSINESS_CASE.md](BUSINESS_CASE.md) — ROI model
+5. **Competitor comparison**: [docs/COMPETITIVE_ANALYSIS.md](COMPETITIVE_ANALYSIS.md)

@@ -20,7 +20,7 @@ def main():
 
     print("\nGenerated datasets:")
     for name, df in datasets.items():
-        print(f"  {name:30s} → {df.shape[0]:>6} rows × {df.shape[1]:>3} columns")
+        print(f"  {name:30s} -> {df.shape[0]:>6} rows x {df.shape[1]:>3} columns")
 
     print("\nData saved to: data/synthetic/")
     print("Done.")

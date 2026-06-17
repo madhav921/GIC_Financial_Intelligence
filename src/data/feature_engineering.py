@@ -80,6 +80,13 @@ def prepare_commodity_features(
     lags = lags or [1, 3, 6, 12]
     windows = windows or [3, 6, 12]
 
+    # Normalise 'date' dtype on both frames so the merge never fails on a
+    # datetime64-vs-str mismatch (CSV loads as str, reset_index gives datetime64).
+    commodity_df = commodity_df.copy()
+    macro_df = macro_df.copy()
+    commodity_df["date"] = pd.to_datetime(commodity_df["date"])
+    macro_df["date"] = pd.to_datetime(macro_df["date"])
+
     # Merge commodity with macro on date
     df = commodity_df[["date", target_commodity]].merge(macro_df, on="date", how="inner")
     df = df.sort_values("date").reset_index(drop=True)

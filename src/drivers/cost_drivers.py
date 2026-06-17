@@ -49,8 +49,17 @@ class CostDrivers:
         # Merge commodity index
         ci = commodity_index_df.copy()
         ci["date"] = pd.to_datetime(ci["date"])
-        base_index = ci["commodity_index"].iloc[0]
-        ci["commodity_impact_pct"] = (ci["commodity_index"] / base_index - 1)
+        # Use year-over-year commodity change (12-month lag) as the cost driver.
+        # Avoids accumulated multi-year inflation from an arbitrary 2019 baseline
+        # producing impossible negative gross margins. YoY captures the real
+        # annual headwind/tailwind a procurement team actually faces each budget cycle.
+        ci = ci.sort_values("date").reset_index(drop=True)
+        ci["commodity_index_lag12"] = ci["commodity_index"].shift(12)
+        ci["commodity_impact_pct"] = np.where(
+            ci["commodity_index_lag12"].notna() & (ci["commodity_index_lag12"] > 0),
+            ci["commodity_index"] / ci["commodity_index_lag12"] - 1,
+            0.0,
+        )
 
         df = df.merge(ci[["date", "commodity_index", "commodity_impact_pct"]], on="date", how="left")
         df["commodity_impact_pct"] = df["commodity_impact_pct"].fillna(0)

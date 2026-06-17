@@ -27,7 +27,6 @@ import pandas as pd
 from loguru import logger
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error, mean_squared_error
 from sklearn.model_selection import TimeSeriesSplit
-from statsmodels.tsa.statespace.sarimax import SARIMAX
 from xgboost import XGBRegressor
 
 from src.config import get_project_root, get_settings
@@ -159,6 +158,7 @@ class SARIMAXForecaster:
 
     def fit(self, series: pd.Series, exog: pd.DataFrame | None = None) -> dict[str, float]:
         """Fit SARIMAX model and return in-sample metrics."""
+        from statsmodels.tsa.statespace.sarimax import SARIMAX  # lazy: not available on Vercel slim build
         model = SARIMAX(
             series,
             exog=exog,
